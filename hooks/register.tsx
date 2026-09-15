@@ -1,4 +1,5 @@
 import type { On } from 'claude-code'
+import { CACHE_FILE, keyFor, lookup, parseCache, withEntry } from './cache.ts'
 import {
   DEFAULT_FALLBACK_MODEL,
   DEFAULT_HTTP_MODEL,
@@ -20,7 +21,7 @@ type Mode = 'plain' | 'lost'
 type State =
   | { status: 'idle' }
   | { status: 'busy'; label: string }
-  | { status: 'done'; label: string; text: string; seconds: string; source: string; chars: number; fallback: string | null }
+  | { status: 'done'; label: string; text: string; seconds: string; source: string; chars: number; fallback: string | null; cached: boolean }
   | { status: 'error'; label: string; text: string }
 
 const PROMPT_DIR = '.config/cc-sidecar-waitwhat'
@@ -54,29 +55,77 @@ export function register(on: On) {
       return firstApiKey(await $.fs.read(path))
     }
 
-    const askCmd = async (system: string, payload: string) => {
+    const cachePath = async () => {
+      const home = await $.env.get('HOME')
+      return home === undefined ? null : `${home}/${CACHE_FILE}`
+    }
+
+    const readCache = async () => {
+      const path = await cachePath()
+      if (path === null || !(await $.fs.exists(path))) return {}
+      return parseCache(await $.fs.read(path))
+    }
+
+    const writeCache = async (key: string, answer: string, label: string, source: string) => {
+      const path = await cachePath()
+      if (path === null) return
+      try {
+        const entries = withEntry(await readCache(), key, { answer, label, source, at: Date.now() / 1000 })
+        await $.fs.write(path, JSON.stringify(entries))
+      } catch {
+        return
+      }
+    }
+
+    const cmdCandidate = async () => {
       const command = await $.env.get('SIDECAR_CMD')
-      if (command === undefined || command.trim().length === 0) throw new Error('沒有設 SIDECAR_CMD')
+      return command === undefined || command.trim().length === 0 ? null : command
+    }
+
+    const httpModel = async () => (await $.env.get('SIDECAR_MODEL')) ?? DEFAULT_HTTP_MODEL
+    const fallbackModel = async () => (await $.env.get('WW_MODEL')) ?? DEFAULT_FALLBACK_MODEL
+
+    const askCmd = async (system: string, payload: string) => {
+      const command = await cmdCandidate()
+      if (command === null) throw new Error('沒有設 SIDECAR_CMD')
       const argv = splitArgv(command)
       const result = await $.process.run(argv, { stdin: cmdStdin(system, payload), timeoutMs: 300000 })
       if (result.exitCode !== 0) throw new Error(`${command} 失敗（exit ${result.exitCode}）：${clip((result.stderr || result.stdout).trim(), 200)}`)
       const answer = result.stdout.trim()
       if (answer.length === 0) throw new Error(`${command} 沒有輸出任何內容`)
-      return { text: answer, source: `cmd:${command}` }
+      return { text: answer, source: `cmd:${command}`, requestModel: `cmd:${command}` }
     }
 
     const askHttp = async (system: string, payload: string) => {
       const url = (await $.env.get('SIDECAR_PROXY')) ?? DEFAULT_PROXY
-      const model = (await $.env.get('SIDECAR_MODEL')) ?? DEFAULT_HTTP_MODEL
+      const model = await httpModel()
       const response = await $.http.fetch(url, { method: 'POST', headers: httpHeaders(await apiKey()), body: httpBody(model, system, payload) })
       if (!response.ok) throw new Error(`HTTP ${response.status}：${clip(response.text.trim(), 200)}`)
-      return { text: httpReplyText(response.text), source: `http:${model}` }
+      return { text: httpReplyText(response.text), source: `http:${model}`, requestModel: model }
     }
 
     const askFallback = async (system: string, payload: string) => {
-      const model = (await $.env.get('WW_MODEL')) ?? DEFAULT_FALLBACK_MODEL
+      const model = await fallbackModel()
       const text = await $.model.complete({ model, system, prompt: payload, maxTokens: 1500 })
-      return { text: text.trim(), source: `claude:${model}` }
+      return { text: text.trim(), source: `claude:${model}`, requestModel: `claude:${model}` }
+    }
+
+    const candidateModels = async () => {
+      const source = sourceOf(await $.env.get('SIDECAR_SOURCE'))
+      const command = await cmdCandidate()
+      const cmd = command === null ? [] : [`cmd:${command}`]
+      const http = [await httpModel()]
+      const claude = [`claude:${await fallbackModel()}`]
+      return source === 'cmd' ? [...cmd, ...claude] : source === 'http' ? [...http, ...claude] : [...cmd, ...http, ...claude]
+    }
+
+    const fromCache = async (system: string, payload: string) => {
+      const entries = await readCache()
+      for (const candidate of await candidateModels()) {
+        const hit = lookup(entries, await keyFor(candidate, system, payload))
+        if (hit !== null) return hit
+      }
+      return null
     }
 
     const ask = async (system: string, payload: string) => {
@@ -106,9 +155,17 @@ export function register(on: On) {
           const picked = mode === 'lost' ? messages : lastTurns(messages, 1)
           const transcript = transcriptOf(picked)
           const system = mode === 'lost' ? await readOverride('wait-what', DEFAULT_WAIT_WHAT) : await readOverride('plain', DEFAULT_PLAIN)
-          const answer = await ask(system, `${PAYLOAD_HEAD}\n\n${transcript}`)
+          const payload = `${PAYLOAD_HEAD}\n\n${transcript}`
+          const hit = await fromCache(system, payload)
+          if (hit !== null) {
+            state = { status: 'done', label, text: hit.answer, seconds: '0.0', source: hit.source, chars: transcript.length, fallback: null, cached: true }
+            redraw()
+            return
+          }
+          const answer = await ask(system, payload)
           const seconds = ((Date.now() - started) / 1000).toFixed(1)
-          state = { status: 'done', label, text: answer.text, seconds, source: answer.source, chars: transcript.length, fallback: answer.fallback }
+          state = { status: 'done', label, text: answer.text, seconds, source: answer.source, chars: transcript.length, fallback: answer.fallback, cached: false }
+          await writeCache(await keyFor(answer.requestModel, system, payload), answer.text, mode === 'lost' ? '跟丟了' : '白話', answer.source)
         } catch (err) {
           state = { status: 'error', label, text: String(err instanceof Error ? err.message : err) }
         }
@@ -126,7 +183,7 @@ export function register(on: On) {
       : state.status === 'error' ? <Text color="red">{`── ${state.label} · 失敗：${state.text}`}</Text>
       : state.status === 'done' ? (
         <Box flexDirection="column">
-          <Text dimColor>{`── ${state.label}  (送出 ${state.chars.toLocaleString()} 字 → ${state.source} · ${state.seconds}s)`}</Text>
+          <Text dimColor>{state.cached ? `── ${state.label}  (快取命中 · 來源 ${state.source})` : `── ${state.label}  (送出 ${state.chars.toLocaleString()} 字 → ${state.source} · ${state.seconds}s)`}</Text>
           {state.fallback !== null ? <Text dimColor color="yellow">{`   退回原因：${state.fallback}`}</Text> : null}
           <Box borderStyle="round" borderColor="gray" paddingX={1} width={e.props.bodyColumns}>
             <Text wrap="wrap">{state.text}</Text>

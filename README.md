@@ -70,6 +70,10 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/cc-mod-waitwhat
 
 按鈕用滑鼠點，或 `ctrl+x tab` 把焦點移進 band、左右鍵選、Enter 按、Esc 回到輸入框。`ctrl+x ctrl+a` 收合整條 band。
 
+## 快取
+
+重講結果寫進 `~/.cache/cc-sidecar-waitwhat.json`，跟 sidecar 同一個檔、同一套 key（來源 + system prompt + 完整 payload 的 SHA-256），上限 200 筆、滿了丟最舊的。同一段對話再按一次直接顯示，標題行寫「快取命中 · 來源 X」。兩個工具的 payload 格式不同，所以互相不會命中，但共用一份檔讓 `ww --cache-stats` 看得到兩邊的筆數。
+
 ## 換掉 prompt
 
 兩套 system prompt 跟 sidecar 共用同一個覆寫位置：`~/.config/cc-sidecar-waitwhat/wait-what.md`（跟丟了）與 `plain.md`（白話）。檔案存在且非空就用它，否則用內建。

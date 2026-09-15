@@ -1,0 +1,15 @@
+{
+  "name": "cc-mod-waitwhat",
+  "owner": { "name": "gggodlin" },
+  "metadata": { "description": "cc-mod-waitwhat: retell recent turns above the prompt, outside the model's context" },
+  "plugins": [
+    {
+      "name": "cc-mod-waitwhat",
+      "source": "./",
+      "description": "Buttons above the prompt that retell the last N turns in plain words. The retell is drawn in the band, never written to the transcript, never seen by the model.",
+      "homepage": "https://github.com/GGGODLIN/cc-mod-waitwhat",
+      "repository": "https://github.com/GGGODLIN/cc-mod-waitwhat",
+      "license": "MIT"
+    }
+  ]
+}

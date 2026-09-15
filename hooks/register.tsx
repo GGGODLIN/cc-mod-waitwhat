@@ -11,13 +11,16 @@ type State =
   | { status: 'error'; label: string; text: string }
 
 const PROMPT_DIR = '.config/cc-sidecar-waitwhat'
+const RANGES = ['1', '2', '3', '5', '10', 'all'] as const
+const rangeLabel = (range: string) => (range === 'all' ? '整段' : `${range} turn`)
 
 export function register(on: On) {
   let state: State = { status: 'idle' }
+  let range: string = '1'
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.surface !== 'terminal') return next(e)
-    const { Box, Button, Text } = await $.ui.resolve(e)
+    const { Box, Button, Select, Text } = await $.ui.resolve(e)
     const redraw = () => $.ui.invalidate('ui.render')
 
     const promptFor = async (mode: Mode) => {
@@ -31,9 +34,10 @@ export function register(on: On) {
       return text.length > 0 ? text : fallback
     }
 
-    const run = (mode: Mode, turns: number | null) => {
+    const run = (mode: Mode) => {
       if (state.status === 'busy') return
-      const label = turns === null ? '跟丟了 · 整段' : `白話 · 往回 ${turns} turn`
+      const turns = mode === 'lost' || range === 'all' ? null : Number(range)
+      const label = mode === 'lost' ? '跟丟了 · 整段' : `白話 · 往回 ${rangeLabel(range)}`
       state = { status: 'busy', label }
       redraw()
       const started = Date.now()
@@ -44,7 +48,8 @@ export function register(on: On) {
           const transcript = transcriptOf(picked)
           const model = (await $.env.get('WW_MODEL')) ?? 'haiku'
           const system = await promptFor(mode)
-          const text = await $.model.complete({ model, system, prompt: transcript, maxTokens: 1500 })
+          const prompt = `以下是 Claude Code 的對話紀錄，USER 是使用者、ASSISTANT 是 Claude。只重講紀錄裡的內容，不要評論紀錄本身。\n\n${transcript}`
+          const text = await $.model.complete({ model, system, prompt, maxTokens: 1500 })
           const seconds = ((Date.now() - started) / 1000).toFixed(1)
           state = { status: 'done', label, text: text.trim(), seconds, model, chars: transcript.length }
         } catch (err) {
@@ -76,9 +81,15 @@ export function register(on: On) {
       <Box flexDirection="column">
         <Box flexDirection="row" columnGap={1}>
           <Text dimColor>wait what</Text>
-          <Button key="ww:plain:1" label="白話 1" autoFocus onPress={() => run('plain', 1)} />
-          <Button key="ww:plain:3" label="白話 3" onPress={() => run('plain', 3)} />
-          <Button key="ww:lost" label="跟丟了" onPress={() => run('lost', null)} />
+          <Select
+            key="ww:range"
+            label="範圍"
+            options={RANGES.map((value) => ({ value, label: rangeLabel(value) }))}
+            value={range}
+            onSelect={(value) => { range = value; redraw() }}
+          />
+          <Button key="ww:plain" label="白話" autoFocus onPress={() => run('plain')} />
+          <Button key="ww:lost" label="跟丟了" onPress={() => run('lost')} />
           {state.status !== 'idle' ? <Button key="ww:clear" label="清除" dimColor onPress={clear} /> : null}
         </Box>
         {body}

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-Hant" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px;
+        overflow: hidden; background: #05070a;
+      }
+      body {
+        font-family: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+        -webkit-font-smoothing: antialiased;
+      }
+      .clip { position: absolute; inset: 0; }
+
+      .term {
+        position: absolute; border-radius: 14px; overflow: hidden;
+        background: #0d1117; border: 1px solid #1c2430;
+        box-shadow: 0 30px 90px rgba(0,0,0,0.65);
+      }
+      .term-bar {
+        height: 44px; background: #131a24; display: flex;
+        align-items: center; padding: 0 18px; gap: 9px;
+        border-bottom: 1px solid #1c2430;
+      }
+      .dot { width: 13px; height: 13px; border-radius: 50%; }
+      .term-title { margin-left: 16px; font-size: 19px; color: #7a828d; letter-spacing: .4px; }
+      .term-body { padding: 26px 36px; font-size: 24px; line-height: 1.58; color: #c9d1d9; }
+
+      .cyan  { color: #2aa198; }
+      .dim   { color: #7a828d; }
+      .bold  { font-weight: 700; color: #e6edf3; }
+
+      #cc { left: 190px; top: 200px; width: 1540px; height: 680px; }
+
+      .band { margin-top: 22px; }
+      .band-row { display: flex; align-items: center; gap: 14px; font-size: 24px; }
+      .btn {
+        display: inline-block; padding: 0 10px; border-radius: 4px;
+        color: #c9d1d9; background: transparent;
+      }
+      .btn.dim { color: #7a828d; }
+      .status { margin-top: 12px; font-size: 21px; color: #7a828d; white-space: nowrap; }
+      .box {
+        margin-top: 10px; border: 1px solid #3a4553; border-radius: 10px;
+        padding: 12px 18px; font-size: 24px; line-height: 1.58; color: #c9d1d9;
+      }
+
+      .prompt-row { display: flex; align-items: center; margin-top: 22px; font-size: 24px; }
+      .caret {
+        display: inline-block; width: 13px; height: 26px;
+        background: #2aa198; margin-left: 3px; vertical-align: -4px;
+      }
+
+      .overlay {
+        position: absolute; left: 0; right: 0; display: flex;
+        flex-direction: column; align-items: center; z-index: 20;
+      }
+      .big { font-size: 78px; font-weight: 700; color: #e6edf3; letter-spacing: 2px; }
+      #outroL1, #outroL2 { font-size: 64px; letter-spacing: 1px; }
+      #outroL2 { color: #9aa4b0; }
+      .sub { margin-top: 26px; font-size: 30px; color: #7a828d; letter-spacing: 3px; }
+      .mid { font-size: 46px; color: #9aa4b0; letter-spacing: 1px; }
+      .scrim { position: absolute; inset: 0; background: #05070a; z-index: 15; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="24"
+         data-width="1920" data-height="1080">
+
+      <div id="stage" class="clip" data-start="0" data-duration="24">
+        <div id="cc" class="term" data-layout-allow-occlusion data-layout-allow-overlap>
+          <div class="term-bar">
+            <span class="dot" style="background:#2d3642"></span>
+            <span class="dot" style="background:#2d3642"></span>
+            <span class="dot" style="background:#2d3642"></span>
+            <span class="term-title" data-layout-allow-overlap>Claude Code — cc-mod-waitwhat</span>
+          </div>
+          <div class="term-body">
+            <div id="ccLines">
+              <div class="ccline" data-layout-allow-overlap>結果畫在 <span class="cyan" data-layout-allow-overlap>AbovePrompt</span>（提示框上方那條 band），不回傳任何</div>
+              <div class="ccline" data-layout-allow-overlap>文字給 transcript。不註冊 <span class="cyan" data-layout-allow-overlap>slash command</span>：指令一敲，CC 就會</div>
+              <div class="ccline" data-layout-allow-overlap>把 <span class="cyan" data-layout-allow-overlap>&lt;command-name&gt;</span> 寫進 transcript、模型下一輪就看到；</div>
+              <div class="ccline" data-layout-allow-overlap>按鈕走的是 <span class="cyan" data-layout-allow-overlap>ui.press</span>，實測 JSONL 零筆記錄。就算退回 Claude</div>
+              <div class="ccline" data-layout-allow-overlap>自家模型，走的也是 <span class="cyan" data-layout-allow-overlap>$.model.complete</span>：一次獨立呼叫，</div>
+              <div class="ccline" data-layout-allow-overlap>沒有歷史、沒有工具，system prompt 只有你給的那段。</div>
+            </div>
+
+            <div class="band">
+              <div class="band-row">
+                <span class="dim" data-layout-allow-overlap>wait what</span>
+                <span id="btnPlain" class="btn" data-layout-allow-overlap>[ 白話 ]</span>
+                <span id="btnLost" class="btn" data-layout-allow-overlap>[ 跟丟了 ]</span>
+                <span id="btnClear" class="btn dim" data-layout-allow-overlap style="opacity:0">[ 清除 ]</span>
+              </div>
+              <div id="status" class="status" data-layout-allow-overlap style="opacity:0">── 白話 · 往回 1 turn · 重講中…</div>
+              <div id="answer" class="box" data-layout-allow-overlap style="opacity:0">
+                <span class="cyan" data-layout-allow-overlap>git stash</span> 是 Git 的「臨時置物櫃」。程式碼寫到一半還不想 commit，<br />
+                卻急著切換分支去修別的東西，它幫你把半成品先收進抽屜、把桌面清空。<br />
+                <span class="bold" data-layout-allow-overlap>白話就是：改到一半還不能存檔時，先收進抽屜放著，等一下再拿出來。</span>
+              </div>
+            </div>
+
+            <div class="prompt-row">
+              <span class="cyan" data-layout-allow-overlap>&gt;</span>&nbsp;<span id="typed" data-layout-allow-overlap></span><span class="caret" id="caret"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="hook" class="overlay clip" data-start="0" data-duration="4.5"
+           style="top: 470px; opacity: 0">
+        <div class="big">看不懂。</div>
+      </div>
+
+      <div id="why" class="overlay clip" data-start="6.2" data-duration="2.6"
+           style="top: 960px; opacity: 0">
+        <div class="mid">問了，它會以為那段很重要。</div>
+      </div>
+
+      <div id="endScrim" class="scrim clip" data-start="19.4" data-duration="4.6" style="opacity:0"></div>
+      <div id="outro" class="overlay clip" data-start="19.6" data-duration="4.4"
+           style="top: 400px; opacity: 0; z-index: 22">
+        <div class="big" id="outroL1">按鈕在提示框上面</div>
+        <div class="big" id="outroL2" style="margin-top: 18px">模型看不到</div>
+        <div class="sub" id="outroName">cc-mod-waitwhat</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const type = (target, text, start, perChar) => {
+        for (let i = 1; i <= text.length; i += 1) {
+          tl.set(target, { textContent: text.slice(0, i) }, start + i * perChar);
+        }
+      };
+      const erase = (target, text, start, perChar) => {
+        for (let i = text.length - 1; i >= 0; i -= 1) {
+          tl.set(target, { textContent: text.slice(0, i) }, start + (text.length - i) * perChar);
+        }
+      };
+      const focus = (target, at) => {
+        tl.to(target, { backgroundColor: "#2aa198", color: "#0d1117", duration: 0.12 }, at);
+      };
+      const press = (target, at) => {
+        tl.to(target, { backgroundColor: "#e6edf3", duration: 0.06 }, at);
+        tl.to(target, { backgroundColor: "#2aa198", duration: 0.12 }, at + 0.08);
+      };
+      const blur = (target, at) => {
+        tl.to(target, { backgroundColor: "rgba(0,0,0,0)", color: "#c9d1d9", duration: 0.15 }, at);
+      };
+
+      tl.to("#caret", { opacity: 0, duration: 0.001, repeat: 40, yoyo: true, repeatDelay: 0.5 }, 0);
+
+      tl.fromTo("#ccLines", { y: 46 }, { y: 0, duration: 0.5, ease: "power2.out" }, 0);
+      tl.fromTo("#hook", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 2.0);
+      tl.to("#hook", { opacity: 0, duration: 0.4 }, 4.1);
+
+      type("#typed", "這什麼意思", 4.8, 0.25);
+      tl.fromTo("#why", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 6.4);
+      tl.to("#why", { opacity: 0, duration: 0.35 }, 8.4);
+      erase("#typed", "這什麼意思", 7.5, 0.16);
+
+      tl.to("#caret", { opacity: 0, duration: 0.1 }, 8.9);
+      focus("#btnPlain", 9.0);
+      press("#btnPlain", 9.8);
+      tl.to("#status", { opacity: 1, duration: 0.3 }, 10.1);
+
+      tl.set("#status", { textContent: "── 白話 · 往回 1 turn  (送出 201 字 → http:gemini-3.8-flash-high · 6.5s)" }, 12.6);
+      tl.to("#answer", { opacity: 1, duration: 0.4 }, 13.1);
+      tl.to("#btnClear", { opacity: 1, duration: 0.3 }, 13.1);
+      blur("#btnPlain", 13.6);
+
+      tl.to("#btnClear", { backgroundColor: "#2aa198", color: "#0d1117", duration: 0.12 }, 18.0);
+      tl.to("#btnClear", { backgroundColor: "#e6edf3", duration: 0.06 }, 18.4);
+      tl.to("#answer", { opacity: 0, duration: 0.2 }, 18.55);
+      tl.to("#status", { opacity: 0, duration: 0.2 }, 18.55);
+      tl.to("#btnClear", { opacity: 0, duration: 0.2 }, 18.55);
+      tl.to("#caret", { opacity: 1, duration: 0.1 }, 18.8);
+
+      tl.to("#endScrim", { opacity: 1, duration: 0.6 }, 19.5);
+      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 19.75);
+      tl.fromTo("#outroL1", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 19.8);
+      tl.fromTo("#outroL2", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 20.7);
+      tl.fromTo("#outroName", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 21.6);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

@@ -4,6 +4,8 @@
 
 這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
+![cc-mod-waitwhat demo](screenshots/demo.gif)
+
 ```
 ┌ transcript
 │  …

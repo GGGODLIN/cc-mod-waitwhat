@@ -1,6 +1,6 @@
 {
   "name": "cc-mod-waitwhat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Retell what Claude just said, in plain words, in the band above the prompt. Nothing enters the transcript or the model's context.",
   "author": { "name": "gggodlin" },
   "license": "MIT"

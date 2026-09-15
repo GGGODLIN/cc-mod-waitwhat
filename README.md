@@ -2,53 +2,75 @@
 
 在 Claude Code 提示框上方重講它剛剛說的話。重講內容只畫在畫面上，不進 transcript，模型看不到。
 
-這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。
+這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
 ```
 ┌ transcript
 │  …
 ├ band
-│  wait what 範圍: 1 turn ▾ [ 白話 ] [ 跟丟了 ] [ 清除 ]
-│  ── 白話 · 往回 1 turn  (送出 416 字 → haiku · 2.0s)
+│  wait what [ 白話 ] [ 跟丟了 ] [ 清除 ]
+│  ── 白話 · 往回 1 turn  (送出 201 字 → http:gemini-3.8-flash-high · 6.5s)
 │  ╭──────────────────────────────────────────────╮
-│  │ Prompt cache 是把不會變的內容先存在 API 端…  │
+│  │ git stash 是 Git 的「臨時置物櫃」…            │
 │  ╰──────────────────────────────────────────────╯
 ├ prompt
 │  ❯
 ```
 
-| 控制 | 做什麼 | 送什麼給模型 |
+| 按鈕 | 做什麼 | 送什麼給模型 |
 |---|---|---|
-| `範圍` | 下拉選 1 / 2 / 3 / 5 / 10 turn 或整段，當下決定要重講多遠 | — |
-| `白話` | 看不懂，照選的範圍白話重講 | 最後 N 個 turn |
-| `跟丟了` | 跟丟了，重講整段脈絡，不看範圍 | 整個 session 的對話與工具紀錄 |
-
-一個 turn 算「你問一次加上 CC 那一輪的回應全部」，中間呼叫工具不會拆開算。
+| `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） |
+| `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 |
 
 ## 為什麼模型看不到
 
-- 重講走 `$.model.complete`：一次獨立呼叫，沒有歷史、沒有工具，system prompt 只有你給的那段。
 - 結果畫在 `AbovePrompt`（提示框上方那條 band），不回傳任何文字給 transcript。
 - 不註冊 slash command。`/wait-what` 這類指令一敲，CC 就會把 `<command-name>` 寫進 transcript、模型下一輪就看到；按鈕走的是 `ui.press`，實測 JSONL 零筆記錄。
+- 就算退回 Claude 自家模型，走的也是 `$.model.complete`：一次獨立呼叫，沒有歷史、沒有工具，system prompt 只有你給的那段。
+
+## 誰提供這次的重講
+
+跟 sidecar 同一條鏈：先試 `cmd`，不行換 `http`，都不行才退回 Claude 自家模型。每次跑完，標題行會寫實際來源，退回時多一行原因。
+
+| 來源 | 是什麼 | 設定 |
+|---|---|---|
+| `cmd` | 一個 shell 指令，prompt 從 stdin 進、答案從 stdout 出 | `SIDECAR_CMD`；沒設就跳過 |
+| `http` | 任何吃 OpenAI 格式 `/v1/chat/completions` 的端點 | `SIDECAR_PROXY`（預設 `http://127.0.0.1:8317/v1/chat/completions`）、`SIDECAR_MODEL`（預設 `gemini-3.8-flash-high`）、`SIDECAR_API_KEY`（沒設就讀 `~/.cli-proxy-api/config.yaml` 的第一把 `api-keys`） |
+| `claude` | `$.model.complete`，走 session 自己的憑證 | `WW_MODEL`（預設 `haiku`） |
+
+`SIDECAR_SOURCE=cmd` 或 `http` 只試那一條，失敗直接退回 `claude`。指令照 shell 規則切參數，但不經過 shell 執行，不能寫 pipe 或重導向。
 
 ## 需求
 
 - Claude Code 2.1.267 以上，並開 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
 - 只在 terminal 有效。桌面版和手機版沒有 band。
 
-## 用
+## 裝
+
+接進所有 session：
+
+```bash
+claude plugin marketplace add /path/to/cc-mod-waitwhat
+claude plugin install cc-mod-waitwhat@cc-mod-waitwhat --scope user
+```
+
+再把 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` 放進 `~/.claude/settings.json` 的 `env`：
+
+```json
+{ "env": { "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1" } }
+```
+
+改了原始碼後跑 `claude plugin update cc-mod-waitwhat@cc-mod-waitwhat`，安裝的是複本。
+
+只試一次、不裝：
 
 ```bash
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/cc-mod-waitwhat
 ```
 
-按鈕用滑鼠點，或 `ctrl+x tab` 把焦點移進 band：方向鍵在元件間移動，停在 `範圍` 上按 Enter 展開、上下鍵挑、Enter 選定，停在按鈕上按 Enter 執行，Esc 回到輸入框。`ctrl+x ctrl+a` 收合整條 band。
+按鈕用滑鼠點，或 `ctrl+x tab` 把焦點移進 band、左右鍵選、Enter 按、Esc 回到輸入框。`ctrl+x ctrl+a` 收合整條 band。
 
-## 設定
-
-| 環境變數 | 預設 | 說明 |
-|---|---|---|
-| `WW_MODEL` | `haiku` | 交給 `$.model.complete` 的模型別名或完整 id，跟 `--model` 走同一套白名單 |
+## 換掉 prompt
 
 兩套 system prompt 跟 sidecar 共用同一個覆寫位置：`~/.config/cc-sidecar-waitwhat/wait-what.md`（跟丟了）與 `plain.md`（白話）。檔案存在且非空就用它，否則用內建。
 
@@ -60,7 +82,7 @@ claude plugin validate .claude-plugin/plugin.json   # 列出掛的事件、$ 呼
 
 型別檢查要先在這個資料夾開一個帶 function hooks 的 session、跑 `/plugin-types` 產生 `.claude/types/`，再 `bunx -p typescript tsc -p .`。
 
-改檔會熱重載進正在跑的 session。
+用 `--plugin-dir` 跑時改檔會熱重載；裝進 marketplace 的複本要 `claude plugin update`。
 
 ## License
 

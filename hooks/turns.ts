@@ -1,4 +1,5 @@
 import type { SessionMessage } from 'claude-code'
+import { clip } from './model.ts'
 
 const startsTurn = (message: SessionMessage) =>
   message.role === 'user' && message.text.trim().length > 0 && (message.toolResults?.length ?? 0) === 0
@@ -13,8 +14,6 @@ export const lastTurns = (messages: SessionMessage[], turns: number) => {
   }
   return messages
 }
-
-const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text)
 
 const lineOf = (message: SessionMessage) => {
   const head = message.role === 'user' ? 'USER' : 'ASSISTANT'

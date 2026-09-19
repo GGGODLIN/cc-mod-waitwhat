@@ -134,7 +134,8 @@ export function register(on: On) {
       const reasons: string[] = []
       for (const attempt of chain) {
         try {
-          return { ...(await attempt(system, payload)), fallback: null }
+          const answer = await attempt(system, payload)
+          return { ...answer, fallback: reasons.length > 0 ? reasons.join('；') : null }
         } catch (err) {
           reasons.push(String(err instanceof Error ? err.message : err))
         }

@@ -1,0 +1,14 @@
+{
+  "mode": "plain",
+  "messages": [
+    {
+      "role": "user",
+      "text": "什麼是 cache？\r\n請白話說明。"
+    },
+    {
+      "role": "assistant",
+      "text": " Cache 是暫存結果，讓相同輸入不用重算。 \n"
+    }
+  ],
+  "expected": "a16ad79e13174921be392146e3230361a4c6e2818f82175d84b3f9e51cf6fdbe"
+}

@@ -1,5 +1,5 @@
 import type { On } from 'claude-code'
-import { CACHE_FILE, keyFor, lookup, parseCache, withEntry } from './cache.ts'
+import { CACHE_FILE, lookup, parseCache, sharedKeyFor, withEntry } from './cache.ts'
 import {
   DEFAULT_FALLBACK_MODEL,
   DEFAULT_HTTP_MODEL,
@@ -14,7 +14,7 @@ import {
   splitArgv,
 } from './model.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
-import { lastTurns, transcriptOf } from './turns.ts'
+import { cacheMessagesOf, lastTurns, transcriptOf } from './turns.ts'
 
 type Mode = 'plain' | 'lost'
 
@@ -110,23 +110,7 @@ export function register(on: On) {
       return { text: text.trim(), source: `claude:${model}`, requestModel: `claude:${model}` }
     }
 
-    const candidateModels = async () => {
-      const source = sourceOf(await $.env.get('SIDECAR_SOURCE'))
-      const command = await cmdCandidate()
-      const cmd = command === null ? [] : [`cmd:${command}`]
-      const http = [await httpModel()]
-      const claude = [`claude:${await fallbackModel()}`]
-      return source === 'cmd' ? [...cmd, ...claude] : source === 'http' ? [...http, ...claude] : [...cmd, ...http, ...claude]
-    }
-
-    const fromCache = async (system: string, payload: string) => {
-      const entries = await readCache()
-      for (const candidate of await candidateModels()) {
-        const hit = lookup(entries, await keyFor(candidate, system, payload))
-        if (hit !== null) return hit
-      }
-      return null
-    }
+    const fromCache = async (key: string) => lookup(await readCache(), key)
 
     const ask = async (system: string, payload: string) => {
       const source = sourceOf(await $.env.get('SIDECAR_SOURCE'))
@@ -157,7 +141,8 @@ export function register(on: On) {
           const transcript = transcriptOf(picked)
           const system = mode === 'lost' ? await readOverride('wait-what', DEFAULT_WAIT_WHAT) : await readOverride('plain', DEFAULT_PLAIN)
           const payload = `${PAYLOAD_HEAD}\n\n${transcript}`
-          const hit = await fromCache(system, payload)
+          const key = await sharedKeyFor(mode, cacheMessagesOf(picked))
+          const hit = await fromCache(key)
           if (hit !== null) {
             state = { status: 'done', label, text: hit.answer, seconds: '0.0', source: hit.source, chars: transcript.length, fallback: null, cached: true }
             redraw()
@@ -166,7 +151,7 @@ export function register(on: On) {
           const answer = await ask(system, payload)
           const seconds = ((Date.now() - started) / 1000).toFixed(1)
           state = { status: 'done', label, text: answer.text, seconds, source: answer.source, chars: transcript.length, fallback: answer.fallback, cached: false }
-          await writeCache(await keyFor(answer.requestModel, system, payload), answer.text, mode === 'lost' ? '跟丟了' : '白話', answer.source)
+          await writeCache(key, answer.text, mode === 'lost' ? '跟丟了' : '白話', answer.source)
         } catch (err) {
           state = { status: 'error', label, text: String(err instanceof Error ? err.message : err) }
         }

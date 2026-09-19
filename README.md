@@ -74,7 +74,7 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/cc-mod-waitwhat
 
 ## 快取
 
-重講結果寫進 `~/.cache/cc-sidecar-waitwhat.json`，跟 sidecar 同一個檔、同一套 key（來源 + system prompt + 完整 payload 的 SHA-256），上限 200 筆、滿了丟最舊的。同一段對話再按一次直接顯示，標題行寫「快取命中 · 來源 X」。兩個工具的 payload 格式不同，所以互相不會命中，但共用一份檔讓 `ww --cache-stats` 看得到兩邊的筆數。
+重講結果寫進 `~/.cache/cc-sidecar-waitwhat.json`，跟 sidecar 共用同一套 key：模式加上標準化後的 user／assistant 對話，再算 SHA-256。key 不含入口、模型來源或兩邊不同的 payload 包裝，所以按鈕與 terminal `ww` 會互相命中；哪邊先產生答案，另一邊就直接沿用。上限 200 筆、滿了丟最舊的。舊版 key 不搬移，同一段舊對話升級後第一次重看仍會重問一次。
 
 ## 換掉 prompt
 

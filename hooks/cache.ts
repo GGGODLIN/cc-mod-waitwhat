@@ -3,12 +3,25 @@ export const CACHE_LIMIT = 200
 
 export type CacheEntry = { answer: string; label: string; source: string; at: number }
 export type CacheMap = Record<string, CacheEntry>
+export type CacheMode = 'plain' | 'lost'
+export interface CacheMessage { role: 'user' | 'assistant'; text: string }
 
 const hex = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
 
-export const keyFor = async (model: string, system: string, payload: string) =>
-  hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode([model, system, payload].join('\0'))))
+const normalizeText = (text: string) =>
+  text.replace(/\r\n?/g, '\n').replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, '')
+
+export const sharedKeyFor = async (
+  mode: CacheMode,
+  messages: ReadonlyArray<CacheMessage>
+): Promise<string> => {
+  const normalized = messages
+    .map(({ role, text }) => [role, normalizeText(text)] as const)
+    .filter(([, text]) => text.length > 0)
+  const payload = JSON.stringify([mode, normalized])
+  return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)))
+}
 
 export const parseCache = (text: string): CacheMap => {
   try {

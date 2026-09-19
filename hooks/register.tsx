@@ -14,7 +14,7 @@ import {
   splitArgv,
 } from './model.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
-import { cacheMessagesOf, lastTurns, transcriptOf } from './turns.ts'
+import { cacheMessagesOf, lastCacheTurns, lastTurns, transcriptOf } from './turns.ts'
 
 type Mode = 'plain' | 'lost'
 
@@ -138,10 +138,11 @@ export function register(on: On) {
         try {
           const messages = await $.session.messages()
           const picked = mode === 'lost' ? messages : lastTurns(messages, 1)
+          const cachePicked = mode === 'lost' ? messages : lastCacheTurns(messages, 1)
           const transcript = transcriptOf(picked)
           const system = mode === 'lost' ? await readOverride('wait-what', DEFAULT_WAIT_WHAT) : await readOverride('plain', DEFAULT_PLAIN)
           const payload = `${PAYLOAD_HEAD}\n\n${transcript}`
-          const key = await sharedKeyFor(mode, cacheMessagesOf(picked))
+          const key = await sharedKeyFor(mode, cacheMessagesOf(cachePicked))
           const hit = await fromCache(key)
           if (hit !== null) {
             state = { status: 'done', label, text: hit.answer, seconds: '0.0', source: hit.source, chars: transcript.length, fallback: null, cached: true }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { sharedKeyFor } from '../hooks/cache.ts'
-import { cacheMessagesOf, lastTurns } from '../hooks/turns.ts'
+import { cacheMessagesOf, lastCacheTurns, lastTurns } from '../hooks/turns.ts'
 
 interface Fixture {
   mode: 'plain' | 'lost'
@@ -49,10 +49,9 @@ describe('shared cache key', () => {
       { role: 'user', text: '<command-message>wait-what</command-message>\n<command-name>/wait-what</command-name>', toolResults: [], toolUses: [] },
       { role: 'assistant', text: '指令回答', toolResults: [], toolUses: [] },
     ]
-    expect(cacheMessagesOf(lastTurns(
-      messages as Parameters<typeof cacheMessagesOf>[0],
-      1
-    ))).toEqual([
+    const typed = messages as Parameters<typeof cacheMessagesOf>[0]
+    expect(lastTurns(typed, 1)).toEqual(typed.slice(2))
+    expect(cacheMessagesOf(lastCacheTurns(typed, 1))).toEqual([
       { role: 'user', text: '問題' },
       { role: 'assistant', text: '原回答' },
       { role: 'assistant', text: '指令回答' },

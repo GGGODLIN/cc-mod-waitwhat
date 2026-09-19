@@ -17,12 +17,26 @@ export const cacheMessagesOf = (messages: SessionMessage[]): CacheMessage[] =>
   })
 
 const startsTurn = (message: SessionMessage) =>
+  message.role === 'user' && message.text.trim().length > 0 && (message.toolResults?.length ?? 0) === 0
+
+const startsCacheTurn = (message: SessionMessage) =>
   message.role === 'user' && cleanText(message.text).length > 0 && (message.toolResults?.length ?? 0) === 0
 
 export const lastTurns = (messages: SessionMessage[], turns: number) => {
   let seen = 0
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (startsTurn(messages[i]!)) {
+      seen += 1
+      if (seen === turns) return messages.slice(i)
+    }
+  }
+  return messages
+}
+
+export const lastCacheTurns = (messages: SessionMessage[], turns: number) => {
+  let seen = 0
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (startsCacheTurn(messages[i]!)) {
       seen += 1
       if (seen === turns) return messages.slice(i)
     }

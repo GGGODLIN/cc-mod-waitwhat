@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-Hant" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px;
+        overflow: hidden; background: #05070a;
+      }
+      body {
+        font-family: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+        -webkit-font-smoothing: antialiased;
+      }
+      .clip { position: absolute; inset: 0; }
+
+      .term {
+        position: absolute; border-radius: 14px; overflow: hidden;
+        background: #0d1117; border: 1px solid #1c2430;
+        box-shadow: 0 30px 90px rgba(0,0,0,0.65);
+      }
+      .term-bar {
+        height: 40px; background: #131a24; display: flex;
+        align-items: center; padding: 0 16px; gap: 8px;
+        border-bottom: 1px solid #1c2430;
+      }
+      .dot { width: 11px; height: 11px; border-radius: 50%; background: #2d3642; }
+      .term-title { margin-left: 14px; font-size: 17px; color: #7a828d; letter-spacing: .4px; }
+      .term-body { padding: 24px 30px; font-size: 22px; line-height: 1.6; color: #c9d1d9; }
+
+      .cyan  { color: #2aa198; }
+      .dim   { color: #7a828d; }
+      .bold  { font-weight: 700; color: #e6edf3; }
+
+      #cc   { left: 110px; top: 240px; width: 850px; height: 600px; }
+      #pane { left: 990px; top: 240px; width: 820px; height: 600px; opacity: 0; }
+      #pane .term-body { font-size: 21px; line-height: 1.62; }
+
+      #splitline {
+        position: absolute; left: 974px; top: 240px; width: 2px; height: 600px;
+        background: #2aa198; transform-origin: top center; opacity: 0;
+        z-index: 12;
+      }
+
+      .band { margin-top: 20px; }
+      .band-row { display: flex; align-items: center; gap: 12px; font-size: 22px; }
+      .btn { display: inline-block; padding: 0 9px; border-radius: 4px; color: #c9d1d9; }
+      .btn.dim { color: #7a828d; }
+      .status { margin-top: 12px; font-size: 17px; color: #7a828d; white-space: nowrap; opacity: 0; }
+
+      .prompt-row { display: flex; align-items: center; margin-top: 20px; font-size: 22px; }
+      .caret {
+        display: inline-block; width: 11px; height: 23px;
+        background: #2aa198; margin-left: 3px; vertical-align: -4px;
+      }
+      .caret.small { width: 10px; height: 21px; }
+
+      .reveal { display: inline-block; clip-path: inset(0 100% 0 0); }
+      .pane-line { opacity: 0; }
+
+      .overlay {
+        position: absolute; left: 0; right: 0; display: flex;
+        flex-direction: column; align-items: center; z-index: 20;
+      }
+      .big { font-size: 78px; font-weight: 700; color: #e6edf3; letter-spacing: 2px; }
+      #outroL2 { color: #e6edf3; }
+      #outroL3 { color: #9aa4b0; }
+      .sub { margin-top: 26px; font-size: 30px; color: #7a828d; letter-spacing: 3px; }
+      .scrim { position: absolute; inset: 0; background: #05070a; z-index: 15; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="21.5"
+         data-width="1920" data-height="1080">
+
+      <div id="stage" class="clip" data-start="0" data-duration="21.5">
+
+        <div id="cc" class="term" data-layout-allow-occlusion data-layout-allow-overlap>
+          <div class="term-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="term-title" data-layout-allow-overlap>Claude Code</span>
+          </div>
+          <div class="term-body">
+            <div id="ccLines">
+              <div data-layout-allow-overlap>結果畫在 <span class="cyan" data-layout-allow-overlap>AbovePrompt</span>（提示框上方</div>
+              <div data-layout-allow-overlap>那條 band），不回傳任何文字給</div>
+              <div data-layout-allow-overlap>transcript。不註冊 <span class="cyan" data-layout-allow-overlap>slash command</span>：</div>
+              <div data-layout-allow-overlap>指令一敲，CC 就會把它寫進 transcript、</div>
+              <div data-layout-allow-overlap>模型下一輪就看到；按鈕走的是</div>
+              <div data-layout-allow-overlap><span class="cyan" data-layout-allow-overlap>ui.press</span>，實測 JSONL 零筆記錄。</div>
+            </div>
+
+            <div class="band">
+              <div class="band-row">
+                <span class="dim" data-layout-allow-overlap>wait what</span>
+                <span id="btnPlain" class="btn" data-layout-allow-overlap>[ 白話 ]</span>
+                <span id="btnLost" class="btn" data-layout-allow-overlap>[ 跟丟了 ]</span>
+              </div>
+              <div id="status" class="status" data-layout-allow-overlap>── 白話 · 往回 1 turn · 已丟給新拆的那格（ww 1）</div>
+            </div>
+
+            <div class="prompt-row">
+              <span class="cyan" data-layout-allow-overlap>&gt;</span>&nbsp;<span class="caret" id="caret"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="splitline"></div>
+
+        <div id="pane" class="term" data-layout-allow-occlusion data-layout-allow-overlap>
+          <div class="term-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="term-title" data-layout-allow-overlap>ww</span>
+          </div>
+          <div class="term-body">
+            <div class="prompt-row" style="margin-top: 0">
+              <span class="cyan" data-layout-allow-overlap>❯</span>&nbsp;<span id="cmd" class="reveal" data-layout-allow-overlap>ww 1</span><span class="caret small" id="paneCaret"></span>
+            </div>
+            <div id="pl1" class="pane-line dim" data-layout-allow-overlap style="margin-top: 16px; font-size: 17px">── 白話：Git stash 是什麼</div>
+            <div id="pl2" class="pane-line dim" data-layout-allow-overlap style="font-size: 17px">&nbsp;&nbsp;&nbsp;(e0cd476e，送出 201 字 → cmd:sidecar-webchat)</div>
+            <div id="pl3" class="pane-line" data-layout-allow-overlap style="margin-top: 16px"><span class="cyan" data-layout-allow-overlap>git stash</span> 是 Git 的「臨時置物櫃」。</div>
+            <div id="pl4" class="pane-line" data-layout-allow-overlap>程式碼寫到一半還不想 commit，卻急著</div>
+            <div id="pl5" class="pane-line" data-layout-allow-overlap>切換分支去修別的東西，它幫你把半成品</div>
+            <div id="pl6" class="pane-line" data-layout-allow-overlap>先收進抽屜、把桌面清空。</div>
+            <div id="pl7" class="pane-line bold" data-layout-allow-overlap style="margin-top: 14px">白話就是：改到一半還不能存檔時，</div>
+            <div id="pl8" class="pane-line bold" data-layout-allow-overlap>先收進抽屜放著，等一下再拿出來。</div>
+            <div id="pl9" class="pane-line dim" data-layout-allow-overlap style="margin-top: 16px; font-size: 17px">── 6.5s  來源 cmd:sidecar-webchat</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="hook" class="overlay clip" data-start="0" data-duration="4.6"
+           style="top: 470px; opacity: 0">
+        <div class="big">看不懂。</div>
+      </div>
+
+      <div id="endScrim" class="scrim clip" data-start="16.9" data-duration="4.6" style="opacity:0"></div>
+      <div id="outro" class="overlay clip" data-start="17.2" data-duration="4.3"
+           style="top: 340px; opacity: 0; z-index: 22">
+        <div class="big" id="outroL1">視窗又回來了</div>
+        <div class="big" id="outroL2" style="margin-top: 18px">但不是你開的</div>
+        <div class="big" id="outroL3" style="margin-top: 18px">模型還是看不到</div>
+        <div class="sub" id="outroName">cc-mod-waitwhat</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const focus = (target, at) => {
+        tl.to(target, { backgroundColor: "#2aa198", color: "#0d1117", duration: 0.12 }, at);
+      };
+      const press = (target, at) => {
+        tl.to(target, { backgroundColor: "#e6edf3", duration: 0.06 }, at);
+        tl.to(target, { backgroundColor: "#2aa198", duration: 0.12 }, at + 0.08);
+      };
+
+      tl.to("#caret", { opacity: 0, duration: 0.001, repeat: 36, yoyo: true, repeatDelay: 0.5 }, 0);
+      tl.fromTo("#ccLines", { y: 44 }, { y: 0, duration: 0.5, ease: "power2.out" }, 0);
+
+      tl.fromTo("#hook", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 2.0);
+      tl.to("#hook", { opacity: 0, duration: 0.4 }, 4.2);
+
+      focus("#btnPlain", 4.9);
+      press("#btnPlain", 5.7);
+
+      tl.set("#splitline", { opacity: 1 }, 6.2);
+      tl.fromTo("#splitline", { scaleY: 0 }, { scaleY: 1, duration: 0.5, ease: "power2.inOut" }, 6.2);
+      tl.to("#pane", { opacity: 1, duration: 0.35 }, 6.7);
+      tl.to("#splitline", { opacity: 0.25, duration: 0.4 }, 7.0);
+      tl.to("#status", { opacity: 1, duration: 0.3 }, 7.0);
+
+      tl.to("#cmd", { clipPath: "inset(0 0% 0 0)", duration: 0.8, ease: "steps(4)" }, 7.6);
+      tl.to("#paneCaret", { opacity: 0, duration: 0.1 }, 8.7);
+
+      tl.to("#pl1", { opacity: 1, duration: 0.3 }, 8.9);
+      tl.to("#pl2", { opacity: 1, duration: 0.3 }, 9.1);
+      tl.to("#pl3", { opacity: 1, duration: 0.35 }, 9.7);
+      tl.to("#pl4", { opacity: 1, duration: 0.35 }, 10.0);
+      tl.to("#pl5", { opacity: 1, duration: 0.35 }, 10.3);
+      tl.to("#pl6", { opacity: 1, duration: 0.35 }, 10.6);
+      tl.to("#pl7", { opacity: 1, duration: 0.4 }, 11.2);
+      tl.to("#pl8", { opacity: 1, duration: 0.4 }, 11.5);
+      tl.to("#pl9", { opacity: 1, duration: 0.35 }, 12.2);
+
+      tl.to("#endScrim", { opacity: 1, duration: 0.6 }, 17.0);
+      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 17.3);
+      tl.fromTo("#outroL1", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 17.4);
+      tl.fromTo("#outroL2", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 18.2);
+      tl.fromTo("#outroL3", { opacity: 0 }, { opacity: 1, duration: 0.45 }, 19.0);
+      tl.fromTo("#outroName", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 19.9);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

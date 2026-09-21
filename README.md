@@ -48,6 +48,8 @@
 
 按下去的瞬間右邊那格才長出來，重講留在那裡，CC 這邊只多一行狀態。
 
+![Orca 底下拆一格跑 ww](screenshots/orca-split.gif)
+
 不用傳 session id。`ww` 會讀自己那格的 `ORCA_TAB_ID`，掃行程的環境變數找到同一個 tab 的 CC，自己認出要重講哪一支。
 
 這條路比 band 更乾淨：mod 不碰 `$.session.messages()`、也不碰 `$.model`，CC 這個殼連重講內容都沒經手，只知道你按了按鈕、然後開了一格終端。band 只留一行狀態。

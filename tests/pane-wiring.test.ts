@@ -96,3 +96,12 @@ describe('when the pane route cannot run', () => {
     expect(drawn).toContain('orca terminal split 失敗')
   })
 })
+
+describe('what the hooks module is allowed to write', () => {
+  test('every $.env.get asks for a literal name', async () => {
+    const source = await Bun.file(new URL('../hooks/register.tsx', import.meta.url)).text()
+    const asked = [...source.matchAll(/\$\.env\.get\(([^)]*)\)/g)].map((hit) => hit[1]!.trim())
+    expect(asked.length).toBeGreaterThan(0)
+    expect(asked.filter((argument) => !/^'[A-Z0-9_]+'$/.test(argument))).toEqual([])
+  })
+})

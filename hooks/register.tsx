@@ -13,7 +13,7 @@ import {
   sourceOf,
   splitArgv,
 } from './model.ts'
-import { HANDLE_VAR, commandFor, handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from './orca.ts'
+import { commandFor, handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from './orca.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
 import { cacheMessagesOf, lastCacheTurns, lastTurns, transcriptOf } from './turns.ts'
 
@@ -116,7 +116,7 @@ export function register(on: On) {
     const fromCache = async (key: string) => lookup(await readCache(), key)
 
     const orcaHandle = async () => {
-      const handle = await $.env.get(HANDLE_VAR)
+      const handle = await $.env.get('ORCA_TERMINAL_HANDLE')
       return handle === undefined || handle.length === 0 ? null : handle
     }
 

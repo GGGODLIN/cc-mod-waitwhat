@@ -1,6 +1,8 @@
 # cc-mod-waitwhat
 
-在 Claude Code 提示框上方重講它剛剛說的話。重講內容只畫在畫面上，不進 transcript，模型看不到。
+在 Claude Code 提示框上方重講它剛剛說的話。重講內容不進 transcript，模型看不到。
+
+重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Orca](https://orca.computer) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
 
 這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
@@ -19,10 +21,10 @@
 │  ❯
 ```
 
-| 按鈕 | 做什麼 | 送什麼給模型 |
-|---|---|---|
-| `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） |
-| `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 |
+| 按鈕 | 做什麼 | 送什麼給模型 | 在 Orca 裡 |
+|---|---|---|---|
+| `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） | 隔壁那格跑 `ww 1` |
+| `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 | 隔壁那格跑 `ww` |
 
 ## 為什麼模型看不到
 
@@ -34,10 +36,17 @@
 
 偵測到 `ORCA_TERMINAL_HANDLE` 就換一條路：按鈕不再自己叫模型，而是拆一格終端出來跑 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。
 
-| 按鈕 | 隔壁那格跑的指令 |
-|---|---|
-| 白話 | `ww 1` |
-| 跟丟了 | `ww` |
+```
+┌ Orca tab ─────────────────┬───────────────────────────┐
+│ CC                        │ ww 1                      │
+│  …                        │                           │
+│  wait what [白話] [跟丟了] │ git stash 是 Git 的臨時    │
+│  ── 白話 · 已丟給旁邊那格  │ 置物櫃…                    │
+│  ❯                        │ ❯                         │
+└───────────────────────────┴───────────────────────────┘
+```
+
+按下去的瞬間右邊那格才長出來，重講留在那裡，CC 這邊只多一行狀態。
 
 不用傳 session id。`ww` 會讀自己那格的 `ORCA_TAB_ID`，掃行程的環境變數找到同一個 tab 的 CC，自己認出要重講哪一支。
 

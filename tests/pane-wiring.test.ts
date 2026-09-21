@@ -78,6 +78,50 @@ describe('pressing 白話 inside Orca', () => {
   })
 })
 
+const herdrSplitReply = { exitCode: 0, stdout: JSON.stringify({ id: 'cli:pane:split', result: { pane: { pane_id: 'w4:pPM' } } }) }
+const herdrListReply = { exitCode: 0, stdout: JSON.stringify({ id: 'cli:pane:list', result: { panes: [{ pane_id: 'w4:pPM' }] } }) }
+const herdrRunReply = { exitCode: 0, stdout: JSON.stringify({ id: 'cli:pane:run', result: { type: 'ok' } }) }
+
+describe('pressing 白話 inside Herdr', () => {
+  let bench: ReturnType<typeof harness>
+
+  beforeEach(() => {
+    bench = harness(
+      { HERDR_PANE_ID: 'w4:pPJ', HERDR_WORKSPACE_ID: 'w4', PWD: '/repo' },
+      [herdrSplitReply, herdrRunReply, herdrListReply, herdrRunReply])
+  })
+
+  test('splits right and then runs ww in the new pane', async () => {
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    expect(bench.calls[0]).toEqual(
+      ['herdr', 'pane', 'split', '--current', '--direction', 'right', '--no-focus', '--cwd', '/repo'])
+    expect(bench.calls[1]).toEqual(['herdr', 'pane', 'run', 'w4:pPM', 'ww 1'])
+    expect(textOf(await bench.draw())).toContain('新拆的那格')
+  })
+
+  test('the second press reuses the pane it already opened', async () => {
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    pressOf(await bench.draw(), 'ww:lost')!()
+    await Bun.sleep(20)
+    expect(bench.calls[2]).toEqual(['herdr', 'pane', 'list', '--workspace', 'w4'])
+    expect(bench.calls[3]).toEqual(['herdr', 'pane', 'run', 'w4:pPM', 'ww'])
+    expect(textOf(await bench.draw())).toContain('旁邊那格')
+  })
+})
+
+describe('when both backends are present', () => {
+  test('orca wins because it is the pane the user is looking at', async () => {
+    const bench = harness(
+      { HERDR_PANE_ID: 'w4:pPJ', HERDR_WORKSPACE_ID: 'w4', ORCA_TERMINAL_HANDLE: 'term_self' },
+      [splitReply])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    expect(bench.calls[0]![0]).toBe('orca')
+  })
+})
+
 describe('when the pane route cannot run', () => {
   test('a plain terminal keeps the inline retell', async () => {
     const bench = harness({}, [])
@@ -94,6 +138,25 @@ describe('when the pane route cannot run', () => {
     const drawn = textOf(await bench.draw())
     expect(drawn).toContain('inline 的回答')
     expect(drawn).toContain('orca terminal split 失敗')
+  })
+
+  test('a herdr pane that splits but refuses the command falls back inline', async () => {
+    const bench = harness(
+      { HERDR_PANE_ID: 'w4:pPJ', HERDR_WORKSPACE_ID: 'w4' },
+      [herdrSplitReply, { exitCode: 1, stdout: '', stderr: 'pane_not_found' }])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(30)
+    const drawn = textOf(await bench.draw())
+    expect(drawn).toContain('inline 的回答')
+    expect(drawn).toContain('herdr pane run 失敗')
+  })
+
+  test('half a herdr identity is treated as no herdr at all', async () => {
+    const bench = harness({ HERDR_PANE_ID: 'w4:pPJ' }, [])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(30)
+    expect(bench.calls).toEqual([])
+    expect(textOf(await bench.draw())).toContain('inline 的回答')
   })
 })
 

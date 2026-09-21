@@ -1,4 +1,4 @@
 {
-  "description": "wait what: buttons above the prompt that retell recent turns. Inside Orca the retell runs as ww in a split pane; elsewhere it goes through $.model.complete and is drawn in the band. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+  "description": "wait what: buttons above the prompt that retell recent turns. Inside Orca or Herdr the retell runs as ww in a split pane; elsewhere it goes through $.model.complete and is drawn in the band. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
   "modules": ["./register.tsx"]
 }

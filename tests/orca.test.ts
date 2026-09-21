@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { commandFor, handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from '../hooks/orca.ts'
+import { handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from '../hooks/orca.ts'
+import { commandFor } from '../hooks/panes.ts'
 
 const splitReply = JSON.stringify({ ok: true, result: { split: { handle: 'term_new', tabId: 'tab-1' } } })
 const listReply = JSON.stringify({

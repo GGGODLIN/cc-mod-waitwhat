@@ -13,7 +13,9 @@ import {
   sourceOf,
   splitArgv,
 } from './model.ts'
-import { commandFor, handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from './orca.ts'
+import * as herdr from './herdr.ts'
+import * as orca from './orca.ts'
+import { commandFor } from './panes.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
 import { cacheMessagesOf, lastCacheTurns, lastTurns, transcriptOf } from './turns.ts'
 
@@ -115,40 +117,83 @@ export function register(on: On) {
 
     const fromCache = async (key: string) => lookup(await readCache(), key)
 
-    const orcaHandle = async () => {
+    type Ran = { exitCode: number; stdout: string; stderr: string }
+
+    type Backend = {
+      open: (command: string) => Promise<string>
+      send: (pane: string, command: string) => Promise<void>
+      alive: (pane: string) => Promise<boolean>
+    }
+
+    const failed = (label: string, ran: Ran) =>
+      new Error(`${label} 失敗（exit ${ran.exitCode}）：${clip((ran.stderr || ran.stdout).trim(), 200)}`)
+
+    const orcaBackend = (handle: string): Backend => ({
+      open: async (command) => {
+        const opened = await $.process.run(orca.splitArgs(handle, command), { timeoutMs: 15000 })
+        if (opened.exitCode !== 0) throw failed('orca terminal split', opened)
+        const created = orca.handleFromSplit(opened.stdout)
+        if (created === null) throw new Error('orca terminal split 沒有回傳 pane handle')
+        return created
+      },
+      send: async (target, command) => {
+        const sent = await $.process.run(orca.sendArgs(target, command), { timeoutMs: 10000 })
+        if (sent.exitCode !== 0) throw failed('orca terminal send', sent)
+      },
+      alive: async (target) => {
+        const listed = await $.process.run(orca.listArgs(), { timeoutMs: 10000 })
+        return listed.exitCode === 0 && orca.paneIsAlive(listed.stdout, target)
+      },
+    })
+
+    const herdrBackend = (workspace: string, cwd: string | null): Backend => ({
+      open: async (command) => {
+        const opened = await $.process.run(herdr.splitArgs(cwd), { timeoutMs: 15000 })
+        if (opened.exitCode !== 0) throw failed('herdr pane split', opened)
+        const created = herdr.paneFromSplit(opened.stdout)
+        if (created === null) throw new Error('herdr pane split 沒有回傳 pane id')
+        const ran = await $.process.run(herdr.runArgs(created, command), { timeoutMs: 10000 })
+        if (ran.exitCode !== 0) throw failed('herdr pane run', ran)
+        return created
+      },
+      send: async (target, command) => {
+        const ran = await $.process.run(herdr.runArgs(target, command), { timeoutMs: 10000 })
+        if (ran.exitCode !== 0) throw failed('herdr pane run', ran)
+      },
+      alive: async (target) => {
+        const listed = await $.process.run(herdr.listArgs(workspace), { timeoutMs: 10000 })
+        return listed.exitCode === 0 && herdr.paneIsAlive(listed.stdout, target)
+      },
+    })
+
+    const backendOf = async (): Promise<Backend | null> => {
       const handle = await $.env.get('ORCA_TERMINAL_HANDLE')
-      return handle === undefined || handle.length === 0 ? null : handle
+      if (handle !== undefined && handle.length > 0) return orcaBackend(handle)
+      const paneId = await $.env.get('HERDR_PANE_ID')
+      const workspace = await $.env.get('HERDR_WORKSPACE_ID')
+      if (paneId === undefined || paneId.length === 0) return null
+      if (workspace === undefined || workspace.length === 0) return null
+      const cwd = await $.env.get('PWD')
+      return herdrBackend(workspace, cwd === undefined || cwd.length === 0 ? null : cwd)
     }
 
-    const reusePane = async (command: string) => {
-      if (pane === null) return false
-      const listed = await $.process.run(listArgs(), { timeoutMs: 10000 })
-      if (listed.exitCode !== 0 || !paneIsAlive(listed.stdout, pane)) {
-        pane = null
-        return false
-      }
-      const sent = await $.process.run(sendArgs(pane, command), { timeoutMs: 10000 })
-      if (sent.exitCode !== 0) {
-        pane = null
-        throw new Error(`orca terminal send 失敗（exit ${sent.exitCode}）：${clip((sent.stderr || sent.stdout).trim(), 200)}`)
-      }
-      return true
-    }
-
-    const openPane = async (handle: string, command: string) => {
-      const opened = await $.process.run(splitArgs(handle, command), { timeoutMs: 15000 })
-      if (opened.exitCode !== 0) {
-        throw new Error(`orca terminal split 失敗（exit ${opened.exitCode}）：${clip((opened.stderr || opened.stdout).trim(), 200)}`)
-      }
-      const created = handleFromSplit(opened.stdout)
-      if (created === null) throw new Error('orca terminal split 沒有回傳 pane handle')
-      pane = created
-    }
-
-    const retellInPane = async (mode: Mode, handle: string) => {
+    const retellInPane = async (mode: Mode, chosen: Backend) => {
       const command = commandFor(mode)
-      if (await reusePane(command)) return { command, reused: true }
-      await openPane(handle, command)
+      if (pane !== null) {
+        const reusable = await chosen.alive(pane)
+        if (reusable) {
+          const target = pane
+          try {
+            await chosen.send(target, command)
+          } catch (err) {
+            pane = null
+            throw err
+          }
+          return { command, reused: true }
+        }
+        pane = null
+      }
+      pane = await chosen.open(command)
       return { command, reused: false }
     }
 
@@ -177,10 +222,10 @@ export function register(on: On) {
       void (async () => {
         let detoured: string | null = null
         try {
-          const handle = await orcaHandle()
-          if (handle !== null) {
+          const chosen = await backendOf()
+          if (chosen !== null) {
             try {
-              const pushed = await retellInPane(mode, handle)
+              const pushed = await retellInPane(mode, chosen)
               state = { status: 'sent', label, command: pushed.command, reused: pushed.reused }
               redraw()
               return

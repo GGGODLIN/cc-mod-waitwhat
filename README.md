@@ -2,7 +2,7 @@
 
 在 Claude Code 提示框上方重講它剛剛說的話。重講內容不進 transcript，模型看不到。
 
-重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Orca](https://orca.computer) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
+重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Orca](https://orca.computer) 或 [Herdr](https://herdr.dev) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
 
 這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
@@ -55,6 +55,22 @@
 這條路比 band 更乾淨：mod 不碰 `$.session.messages()`、也不碰 `$.model`，CC 這個殼連重講內容都沒經手，只知道你按了按鈕、然後開了一格終端。band 只留一行狀態。
 
 第二次按會重用同一格（`orca terminal send`），不會愈開愈多。那格被你關掉就重拆一格。`orca` 指令失敗、或根本不在 Orca 裡，就退回原本畫在 band 的做法，並在標題行寫出退回原因。
+
+### Herdr 底下也一樣
+
+Herdr 走同一條路，只差在指令：
+
+| 動作 | Orca | Herdr |
+| --- | --- | --- |
+| 拆格 | `orca terminal split --command "ww 1"` | `herdr pane split --current --direction right --no-focus` 再 `herdr pane run <pane> "ww 1"` |
+| 重用 | `orca terminal send --enter` | `herdr pane run <pane>` |
+| 還活著嗎 | `orca terminal list`（看 `orphaned`） | `herdr pane list --workspace`（pane id 還在清單裡就算活著） |
+
+`herdr pane split` 不吃 `--command`，所以拆完要再送一次；實測零間隔連著送不會掉字，就沒加等待。
+
+拆出來的格子跟 CC 在同一個 tab，`ww` 靠繼承的 `HERDR_TAB_ID` 認出要重講哪一支，一樣不用傳 session id。
+
+兩套身分同時在（Orca 從 Herdr 的格子裡開起來時會繼承 `HERDR_*`）就先試 Orca，因為那才是你眼前看到的畫面。`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 只有一個在，當作沒有 Herdr。
 
 兩邊共用同一份快取，所以剛在 band 看過的那段，換到隔壁那格不會再花一次錢。
 

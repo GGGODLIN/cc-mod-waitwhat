@@ -13,6 +13,7 @@ import {
   sourceOf,
   splitArgv,
 } from './model.ts'
+import { HANDLE_VAR, commandFor, handleFromSplit, listArgs, paneIsAlive, sendArgs, splitArgs } from './orca.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
 import { cacheMessagesOf, lastCacheTurns, lastTurns, transcriptOf } from './turns.ts'
 
@@ -21,6 +22,7 @@ type Mode = 'plain' | 'lost'
 type State =
   | { status: 'idle' }
   | { status: 'busy'; label: string }
+  | { status: 'sent'; label: string; command: string; reused: boolean }
   | { status: 'done'; label: string; text: string; seconds: string; source: string; chars: number; fallback: string | null; cached: boolean }
   | { status: 'error'; label: string; text: string }
 
@@ -30,6 +32,7 @@ const PAYLOAD_HEAD = '以下是 Claude Code 的對話紀錄，USER 是使用者�
 
 export function register(on: On) {
   let state: State = { status: 'idle' }
+  let pane: string | null = null
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.surface !== 'terminal') return next(e)
@@ -112,6 +115,43 @@ export function register(on: On) {
 
     const fromCache = async (key: string) => lookup(await readCache(), key)
 
+    const orcaHandle = async () => {
+      const handle = await $.env.get(HANDLE_VAR)
+      return handle === undefined || handle.length === 0 ? null : handle
+    }
+
+    const reusePane = async (command: string) => {
+      if (pane === null) return false
+      const listed = await $.process.run(listArgs(), { timeoutMs: 10000 })
+      if (listed.exitCode !== 0 || !paneIsAlive(listed.stdout, pane)) {
+        pane = null
+        return false
+      }
+      const sent = await $.process.run(sendArgs(pane, command), { timeoutMs: 10000 })
+      if (sent.exitCode !== 0) {
+        pane = null
+        throw new Error(`orca terminal send 失敗（exit ${sent.exitCode}）：${clip((sent.stderr || sent.stdout).trim(), 200)}`)
+      }
+      return true
+    }
+
+    const openPane = async (handle: string, command: string) => {
+      const opened = await $.process.run(splitArgs(handle, command), { timeoutMs: 15000 })
+      if (opened.exitCode !== 0) {
+        throw new Error(`orca terminal split 失敗（exit ${opened.exitCode}）：${clip((opened.stderr || opened.stdout).trim(), 200)}`)
+      }
+      const created = handleFromSplit(opened.stdout)
+      if (created === null) throw new Error('orca terminal split 沒有回傳 pane handle')
+      pane = created
+    }
+
+    const retellInPane = async (mode: Mode, handle: string) => {
+      const command = commandFor(mode)
+      if (await reusePane(command)) return { command, reused: true }
+      await openPane(handle, command)
+      return { command, reused: false }
+    }
+
     const ask = async (system: string, payload: string) => {
       const source = sourceOf(await $.env.get('SIDECAR_SOURCE'))
       const chain = source === 'cmd' ? [askCmd] : source === 'http' ? [askHttp] : [askCmd, askHttp]
@@ -135,7 +175,19 @@ export function register(on: On) {
       redraw()
       const started = Date.now()
       void (async () => {
+        let detoured: string | null = null
         try {
+          const handle = await orcaHandle()
+          if (handle !== null) {
+            try {
+              const pushed = await retellInPane(mode, handle)
+              state = { status: 'sent', label, command: pushed.command, reused: pushed.reused }
+              redraw()
+              return
+            } catch (err) {
+              detoured = String(err instanceof Error ? err.message : err)
+            }
+          }
           const messages = await $.session.messages()
           const picked = mode === 'lost' ? messages : lastTurns(messages, 1)
           const cachePicked = mode === 'lost' ? messages : lastCacheTurns(messages, 1)
@@ -145,13 +197,14 @@ export function register(on: On) {
           const key = await sharedKeyFor(mode, cacheMessagesOf(cachePicked))
           const hit = await fromCache(key)
           if (hit !== null) {
-            state = { status: 'done', label, text: hit.answer, seconds: '0.0', source: hit.source, chars: transcript.length, fallback: null, cached: true }
+            state = { status: 'done', label, text: hit.answer, seconds: '0.0', source: hit.source, chars: transcript.length, fallback: detoured, cached: true }
             redraw()
             return
           }
           const answer = await ask(system, payload)
           const seconds = ((Date.now() - started) / 1000).toFixed(1)
-          state = { status: 'done', label, text: answer.text, seconds, source: answer.source, chars: transcript.length, fallback: answer.fallback, cached: false }
+          const reasons = [detoured, answer.fallback].filter((reason) => reason !== null && reason.length > 0)
+          state = { status: 'done', label, text: answer.text, seconds, source: answer.source, chars: transcript.length, fallback: reasons.length > 0 ? reasons.join('；') : null, cached: false }
           await writeCache(key, answer.text, mode === 'lost' ? '跟丟了' : '白話', answer.source)
         } catch (err) {
           state = { status: 'error', label, text: String(err instanceof Error ? err.message : err) }
@@ -167,6 +220,7 @@ export function register(on: On) {
 
     const body =
       state.status === 'busy' ? <Text dimColor>{`── ${state.label} · 重講中…`}</Text>
+      : state.status === 'sent' ? <Text dimColor>{`── ${state.label} · 已丟給${state.reused ? '旁邊那格' : '新拆的那格'}（${state.command}）`}</Text>
       : state.status === 'error' ? <Text color="red">{`── ${state.label} · 失敗：${state.text}`}</Text>
       : state.status === 'done' ? (
         <Box flexDirection="column">

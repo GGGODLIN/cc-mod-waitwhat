@@ -30,6 +30,23 @@
 - 不註冊 slash command。`/wait-what` 這類指令一敲，CC 就會把 `<command-name>` 寫進 transcript、模型下一輪就看到；按鈕走的是 `ui.press`，實測 JSONL 零筆記錄。
 - 就算退回 Claude 自家模型，走的也是 `$.model.complete`：一次獨立呼叫，沒有歷史、沒有工具，system prompt 只有你給的那段。
 
+## 在 Orca 底下：重講跑到隔壁那格
+
+偵測到 `ORCA_TERMINAL_HANDLE` 就換一條路：按鈕不再自己叫模型，而是拆一格終端出來跑 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。
+
+| 按鈕 | 隔壁那格跑的指令 |
+|---|---|
+| 白話 | `ww 1` |
+| 跟丟了 | `ww` |
+
+不用傳 session id。`ww` 會讀自己那格的 `ORCA_TAB_ID`，掃行程的環境變數找到同一個 tab 的 CC，自己認出要重講哪一支。
+
+這條路比 band 更乾淨：mod 不碰 `$.session.messages()`、也不碰 `$.model`，CC 這個殼連重講內容都沒經手，只知道你按了按鈕、然後開了一格終端。band 只留一行狀態。
+
+第二次按會重用同一格（`orca terminal send`），不會愈開愈多。那格被你關掉就重拆一格。`orca` 指令失敗、或根本不在 Orca 裡，就退回原本畫在 band 的做法，並在標題行寫出退回原因。
+
+兩邊共用同一份快取，所以剛在 band 看過的那段，換到隔壁那格不會再花一次錢。
+
 ## 誰提供這次的重講
 
 跟 sidecar 同一條鏈：先試 `cmd`，不行換 `http`，都不行才退回 Claude 自家模型。每次跑完，標題行會寫實際來源，退回時多一行原因。

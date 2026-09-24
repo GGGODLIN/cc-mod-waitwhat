@@ -2,7 +2,7 @@ import type { SessionMessage } from 'claude-code'
 import type { CacheMessage } from './cache.ts'
 import { clip } from './model.ts'
 
-const cleanText = (text: string) =>
+export const cleanText = (text: string) =>
   text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<command-(name|message|args)>[\s\S]*?<\/command-\1>/g, '')

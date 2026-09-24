@@ -17,6 +17,8 @@ import * as herdr from './herdr.ts'
 import * as orca from './orca.ts'
 import { commandFor } from './panes.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
+import type { RecapRecord } from './recap.ts'
+import { registerRecap } from './recap-hooks.ts'
 import { cacheMessagesOf, lastCacheTurns, lastTurns, transcriptOf } from './turns.ts'
 
 type Mode = 'plain' | 'lost'
@@ -35,6 +37,11 @@ const PAYLOAD_HEAD = '以下是 Claude Code 的對話紀錄，USER 是使用者�
 export function register(on: On) {
   let state: State = { status: 'idle' }
   let pane: string | null = null
+  let latest: RecapRecord | null = null
+
+  registerRecap(on, (record) => {
+    latest = record
+  })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.surface !== 'terminal') return next(e)
@@ -278,6 +285,9 @@ export function register(on: On) {
       )
       : null
 
+    const shown = latest !== null && latest.sessionId === (await $.session.id()) ? latest : null
+    const recapLine = shown === null ? null : `recap · ${shown.now}${shown.next.length > 0 ? ` → ${shown.next}` : ''}`
+
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" columnGap={1}>
@@ -286,6 +296,7 @@ export function register(on: On) {
           <Button key="ww:lost" label="跟丟了" onPress={() => run('lost')} />
           {state.status !== 'idle' ? <Button key="ww:clear" label="清除" dimColor onPress={clear} /> : null}
         </Box>
+        {recapLine !== null ? <Text dimColor wrap="truncate-end">{recapLine}</Text> : null}
         {body}
         {await next(e)}
       </Box>

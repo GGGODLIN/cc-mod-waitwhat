@@ -4,7 +4,7 @@ import { cleanText } from './turns.ts'
 
 export const RECAP_DIR = '.cache/cc-recap'
 export const RECAP_MODEL = 'groq-qwen-3.8-27b'
-export const RECAP_FALLBACK_MODEL = 'gpt-6-luna-fast'
+export const RECAP_FALLBACK_MODEL = 'gpt-5.6-luna-fast'
 export const RECAP_IDLE_MS = 5000
 export const RECAP_MIN_GAP_MS = 60000
 export const RECAP_INPUT_BUDGET = 5000

@@ -15,7 +15,7 @@ import {
 } from './model.ts'
 import * as herdr from './herdr.ts'
 import * as orca from './orca.ts'
-import { commandFor } from './panes.ts'
+import { commandFor, routeFor, type PaneChoice, type PaneTarget } from './panes.ts'
 import { DEFAULT_PLAIN, DEFAULT_WAIT_WHAT } from './prompts.ts'
 import type { RecapRecord } from './recap.ts'
 import { registerRecap } from './recap-hooks.ts'
@@ -26,6 +26,7 @@ type Mode = 'plain' | 'lost'
 type State =
   | { status: 'idle' }
   | { status: 'busy'; label: string }
+  | { status: 'choosing'; label: string; mode: Mode; route: PaneChoice }
   | { status: 'sent'; label: string; command: string; reused: boolean }
   | { status: 'done'; label: string; text: string; seconds: string; source: string; chars: number; fallback: string | null; cached: boolean }
   | { status: 'error'; label: string; text: string }
@@ -36,7 +37,7 @@ const PAYLOAD_HEAD = '以下是 Claude Code 的對話紀錄，USER 是使用者�
 
 export function register(on: On) {
   let state: State = { status: 'idle' }
-  let pane: string | null = null
+  const panes: Record<PaneTarget['host'], string | null> = { orca: null, herdr: null }
   let latest: RecapRecord | null = null
 
   registerRecap(on, (record) => {
@@ -173,34 +174,33 @@ export function register(on: On) {
       },
     })
 
-    const backendOf = async (): Promise<Backend | null> => {
-      const handle = await $.env.get('ORCA_TERMINAL_HANDLE')
-      if (handle !== undefined && handle.length > 0) return orcaBackend(handle)
-      const paneId = await $.env.get('HERDR_PANE_ID')
-      const workspace = await $.env.get('HERDR_WORKSPACE_ID')
-      if (paneId === undefined || paneId.length === 0) return null
-      if (workspace === undefined || workspace.length === 0) return null
-      const cwd = await $.env.get('PWD')
-      return herdrBackend(workspace, cwd === undefined || cwd.length === 0 ? null : cwd)
-    }
+    const backendOf = async () => routeFor({
+      ORCA_TERMINAL_HANDLE: await $.env.get('ORCA_TERMINAL_HANDLE'),
+      ORCA_PANE_KEY: await $.env.get('ORCA_PANE_KEY'),
+      ORCA_WORKTREE_ID: await $.env.get('ORCA_WORKTREE_ID'),
+      HERDR_PANE_ID: await $.env.get('HERDR_PANE_ID'),
+      HERDR_WORKSPACE_ID: await $.env.get('HERDR_WORKSPACE_ID'),
+      PWD: await $.env.get('PWD'),
+    })
 
-    const retellInPane = async (mode: Mode, chosen: Backend) => {
-      const command = commandFor(mode)
+    const retellInPane = async (mode: Mode, target: PaneTarget) => {
+      const chosen = target.host === 'orca' ? orcaBackend(target.handle) : herdrBackend(target.workspace, target.cwd)
+      const command = commandFor(mode, target.host)
+      const pane = panes[target.host]
       if (pane !== null) {
         const reusable = await chosen.alive(pane)
         if (reusable) {
-          const target = pane
           try {
-            await chosen.send(target, command)
+            await chosen.send(pane, command)
           } catch (err) {
-            pane = null
+            panes[target.host] = null
             throw err
           }
           return { command, reused: true }
         }
-        pane = null
+        panes[target.host] = null
       }
-      pane = await chosen.open(command)
+      panes[target.host] = await chosen.open(command)
       return { command, reused: false }
     }
 
@@ -220,8 +220,8 @@ export function register(on: On) {
       return { ...answer, fallback: reasons.join('；') }
     }
 
-    const run = (mode: Mode) => {
-      if (state.status === 'busy') return
+    const run = (mode: Mode, selected?: PaneTarget) => {
+      if (state.status === 'busy' || state.status === 'choosing') return
       const label = mode === 'lost' ? '跟丟了 · 整段' : '白話 · 往回 1 turn'
       state = { status: 'busy', label }
       redraw()
@@ -229,8 +229,13 @@ export function register(on: On) {
       void (async () => {
         let detoured: string | null = null
         try {
-          const chosen = await backendOf()
-          if (chosen !== null) {
+          const chosen = selected ?? await backendOf()
+          if (chosen.host === 'choice') {
+            state = { status: 'choosing', label, mode, route: chosen }
+            redraw()
+            return
+          }
+          if (chosen.host !== 'inline') {
             try {
               const pushed = await retellInPane(mode, chosen)
               state = { status: 'sent', label, command: pushed.command, reused: pushed.reused }
@@ -270,8 +275,29 @@ export function register(on: On) {
       redraw()
     }
 
+    const choice = state.status === 'choosing' ? state : null
+    const choose = (host: PaneTarget['host'] | null) => {
+      if (choice === null || state !== choice) return
+      if (host === null) {
+        clear()
+        return
+      }
+      state = { status: 'idle' }
+      run(choice.mode, choice.route[host])
+    }
+
     const body =
-      state.status === 'busy' ? <Text dimColor>{`── ${state.label} · 重講中…`}</Text>
+      choice !== null ? (
+        <Box flexDirection="column">
+          <Text>{`── ${choice.label} · 同時有 Orca 與 Herdr 身分，請選擇宿主（未選不執行）`}</Text>
+          <Box flexDirection="row" columnGap={1}>
+            <Button key="ww:orca" label="Orca" onPress={() => choose('orca')} />
+            <Button key="ww:herdr" label="Herdr" onPress={() => choose('herdr')} />
+            <Button key="ww:cancel" label="取消" onPress={() => choose(null)} />
+          </Box>
+        </Box>
+      )
+      : state.status === 'busy' ? <Text dimColor>{`── ${state.label} · 重講中…`}</Text>
       : state.status === 'sent' ? <Text dimColor>{`── ${state.label} · 已丟給${state.reused ? '旁邊那格' : '新拆的那格'}（${state.command}）`}</Text>
       : state.status === 'error' ? <Text color="red">{`── ${state.label} · 失敗：${state.text}`}</Text>
       : state.status === 'done' ? (

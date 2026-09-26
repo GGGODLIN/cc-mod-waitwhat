@@ -34,7 +34,7 @@
 
 ## 在 Orca 底下：重講跑到隔壁那格
 
-偵測到 `ORCA_TERMINAL_HANDLE` 就換一條路：按鈕不再自己叫模型，而是拆一格終端出來跑 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。
+`ORCA_TERMINAL_HANDLE`、`ORCA_PANE_KEY`、`ORCA_WORKTREE_ID` 齊全時，按鈕改在選定的 Orca 宿主拆一格終端，執行 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。只有部分身分欄位時，不視為 Orca。
 
 ```
 ┌ Orca tab ─────────────────┬───────────────────────────┐
@@ -70,7 +70,9 @@ Herdr 走同一條路，只差在指令：
 
 拆出來的格子跟 CC 在同一個 tab，`ww` 靠繼承的 `HERDR_TAB_ID` 認出要重講哪一支，一樣不用傳 session id。
 
-兩套身分同時在（Orca 從 Herdr 的格子裡開起來時會繼承 `HERDR_*`）就先試 Orca，因為那才是你眼前看到的畫面。`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 只有一個在，當作沒有 Herdr。
+`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 齊全才視為 Herdr。兩套身分同時完整時，每次按重講都先顯示「Orca／Herdr／取消」；未選或取消不啟動程序，也不改走模型請求。兩套身分都不完整時，保留原本在 band 內重講的做法。
+
+選 Orca 時，只在新啟動的 `ww` 子程序移除繼承的 Herdr 身分變數，不修改目前 shell 或既有 session。兩個宿主各自重用自己的 pane，不跨宿主送指令。
 
 兩邊共用同一份快取，所以剛在 band 看過的那段，換到隔壁那格不會再花一次錢。
 

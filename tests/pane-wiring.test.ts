@@ -23,6 +23,7 @@ const pressOf = (node: unknown, key: string) => {
 
 const harness = (env: Record<string, string>, replies: Array<{ exitCode: number; stdout: string }>) => {
   const calls: string[][] = []
+  const inlineCalls: string[] = []
   const $ = {
     ui: { resolve: async () => ({ Box: 'Box', Button: 'Button', Text: 'Text' }), invalidate: () => {} },
     env: { get: async (name: string) => env[name] },
@@ -34,20 +35,33 @@ const harness = (env: Record<string, string>, replies: Array<{ exitCode: number;
       },
     },
     session: {
-      messages: async () => [
-        { role: 'user', text: '問題', toolUses: [], toolResults: [] },
-        { role: 'assistant', text: '回答', toolUses: [], toolResults: [] },
-      ],
+      messages: async () => {
+        inlineCalls.push('messages')
+        return [
+          { role: 'user', text: '問題', toolUses: [], toolResults: [] },
+          { role: 'assistant', text: '回答', toolUses: [], toolResults: [] },
+        ]
+      },
     },
-    http: { fetch: async () => ({ ok: false, status: 500, text: 'nope' }) },
-    model: { complete: async () => 'inline 的回答' },
+    http: { fetch: async () => {
+      inlineCalls.push('http')
+      return { ok: false, status: 500, text: 'nope' }
+    } },
+    model: { complete: async () => {
+      inlineCalls.push('model')
+      return 'inline 的回答'
+    } },
   }
   let handler: (($: unknown, e: unknown, next: unknown) => Promise<unknown>) | null = null
   register(((_event: string, _filter: unknown, fn: typeof handler) => { handler = fn }) as never)
   const event = { surface: 'terminal', props: { hasSurvey: false, bodyColumns: 80 } }
   const draw = async () => handler!($, event, async () => null)
-  return { calls, draw }
+  return { calls, inlineCalls, draw }
 }
+
+const orcaIdentity = { ORCA_TERMINAL_HANDLE: 'term_self', ORCA_PANE_KEY: 'pane_self', ORCA_WORKTREE_ID: 'tree_self' }
+const herdrIdentity = { HERDR_PANE_ID: 'w4:pPJ', HERDR_WORKSPACE_ID: 'w4' }
+const orcaCommand = 'env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_SOCKET_PATH -u HERDR_BIN_PATH ww'
 
 const splitReply = { exitCode: 0, stdout: JSON.stringify({ ok: true, result: { split: { handle: 'term_pane' } } }) }
 const listReply = { exitCode: 0, stdout: JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_pane' }] } }) }
@@ -56,14 +70,14 @@ describe('pressing 白話 inside Orca', () => {
   let bench: ReturnType<typeof harness>
 
   beforeEach(() => {
-    bench = harness({ ORCA_TERMINAL_HANDLE: 'term_self' }, [splitReply, listReply, { exitCode: 0, stdout: '{"ok":true}' }])
+    bench = harness(orcaIdentity, [splitReply, listReply, { exitCode: 0, stdout: '{"ok":true}' }])
   })
 
   test('splits a pane running ww instead of asking a model', async () => {
     pressOf(await bench.draw(), 'ww:plain')!()
     await Bun.sleep(20)
     expect(bench.calls[0]).toEqual(
-      ['orca', 'terminal', 'split', '--terminal', 'term_self', '--direction', 'vertical', '--command', 'ww 1', '--json'])
+      ['orca', 'terminal', 'split', '--terminal', 'term_self', '--direction', 'vertical', '--command', `${orcaCommand} 1`, '--json'])
     expect(textOf(await bench.draw())).toContain('新拆的那格')
   })
 
@@ -73,7 +87,7 @@ describe('pressing 白話 inside Orca', () => {
     pressOf(await bench.draw(), 'ww:lost')!()
     await Bun.sleep(20)
     expect(bench.calls[1]).toEqual(['orca', 'terminal', 'list', '--json'])
-    expect(bench.calls[2]).toEqual(['orca', 'terminal', 'send', '--terminal', 'term_pane', '--text', 'ww', '--enter', '--json'])
+    expect(bench.calls[2]).toEqual(['orca', 'terminal', 'send', '--terminal', 'term_pane', '--text', orcaCommand, '--enter', '--json'])
     expect(textOf(await bench.draw())).toContain('旁邊那格')
   })
 })
@@ -112,13 +126,130 @@ describe('pressing 白話 inside Herdr', () => {
 })
 
 describe('when both backends are present', () => {
-  test('orca wins because it is the pane the user is looking at', async () => {
-    const bench = harness(
-      { HERDR_PANE_ID: 'w4:pPJ', HERDR_WORKSPACE_ID: 'w4', ORCA_TERMINAL_HANDLE: 'term_self' },
-      [splitReply])
+  const both = Object.freeze({ ...orcaIdentity, ...herdrIdentity })
+
+  test('waits for an explicit host without processes, transcript reads or model requests', async () => {
+    const bench = harness(both, [splitReply])
     pressOf(await bench.draw(), 'ww:plain')!()
     await Bun.sleep(20)
-    expect(bench.calls[0]![0]).toBe('orca')
+    const drawn = await bench.draw()
+    expect(textOf(drawn)).toContain('選擇宿主')
+    for (const key of ['ww:orca', 'ww:herdr', 'ww:cancel']) expect(pressOf(drawn, key)).toBeFunction()
+    expect(bench.calls).toEqual([])
+    expect(bench.inlineCalls).toEqual([])
+  })
+
+  test.each(['ww:cancel', 'ww:clear'])('%s cancels and stale choice buttons cannot launch anything', async (key) => {
+    const bench = harness(both, [splitReply])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    const drawn = await bench.draw()
+    const staleChoice = pressOf(drawn, 'ww:orca')
+    expect(staleChoice).toBeFunction()
+    pressOf(drawn, key)!()
+    staleChoice!()
+    await Bun.sleep(20)
+    expect(bench.calls).toEqual([])
+    expect(bench.inlineCalls).toEqual([])
+    expect(pressOf(await bench.draw(), 'ww:orca')).toBeUndefined()
+  })
+
+  test('explicit Orca choice isolates only the new ww command and preserves lost mode', async () => {
+    const bench = harness(both, [splitReply])
+    pressOf(await bench.draw(), 'ww:lost')!()
+    await Bun.sleep(20)
+    const choose = pressOf(await bench.draw(), 'ww:orca')
+    expect(choose).toBeFunction()
+    choose!()
+    choose!()
+    await Bun.sleep(20)
+    expect(bench.calls).toEqual([
+      ['orca', 'terminal', 'split', '--terminal', 'term_self', '--direction', 'vertical', '--command', orcaCommand, '--json'],
+    ])
+    expect(bench.inlineCalls).toEqual([])
+    expect(both).toEqual({ ...orcaIdentity, ...herdrIdentity })
+  })
+
+  test('explicit Herdr choice leaves the Herdr ww command unchanged', async () => {
+    const bench = harness(both, [herdrSplitReply, herdrRunReply])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    const choose = pressOf(await bench.draw(), 'ww:herdr')
+    expect(choose).toBeFunction()
+    choose!()
+    await Bun.sleep(20)
+    expect(bench.calls).toEqual([
+      ['herdr', 'pane', 'split', '--current', '--direction', 'right', '--no-focus'],
+      ['herdr', 'pane', 'run', 'w4:pPM', 'ww 1'],
+    ])
+    expect(bench.inlineCalls).toEqual([])
+  })
+
+  test('asks again on each request and never reuses the other host\'s pane', async () => {
+    const bench = harness(both, [splitReply, herdrSplitReply, herdrRunReply, listReply, { exitCode: 0, stdout: '' }])
+    for (const [index, host] of ['orca', 'herdr', 'orca'].entries()) {
+      const before = bench.calls.length
+      pressOf(await bench.draw(), index === 0 ? 'ww:plain' : 'ww:lost')!()
+      await Bun.sleep(20)
+      expect(bench.calls.length).toBe(before)
+      const choose = pressOf(await bench.draw(), `ww:${host}`)
+      expect(choose).toBeFunction()
+      choose!()
+      await Bun.sleep(20)
+    }
+    expect(bench.calls).toEqual([
+      ['orca', 'terminal', 'split', '--terminal', 'term_self', '--direction', 'vertical', '--command', `${orcaCommand} 1`, '--json'],
+      ['herdr', 'pane', 'split', '--current', '--direction', 'right', '--no-focus'],
+      ['herdr', 'pane', 'run', 'w4:pPM', 'ww'],
+      ['orca', 'terminal', 'list', '--json'],
+      ['orca', 'terminal', 'send', '--terminal', 'term_pane', '--text', orcaCommand, '--enter', '--json'],
+    ])
+  })
+})
+
+describe('incomplete terminal identities', () => {
+  const identities = [orcaIdentity, herdrIdentity]
+  for (const identity of identities) {
+    for (const missing of Object.keys(identity)) {
+      for (const value of [undefined, '']) {
+        const partial: Record<string, string> = { ...identity }
+        if (value === undefined) delete partial[missing]
+        else partial[missing] = value
+        test(`${missing}=${String(value)} does not identify a host`, async () => {
+          const bench = harness(partial, [])
+          pressOf(await bench.draw(), 'ww:plain')!()
+          await Bun.sleep(30)
+          expect(bench.calls).toEqual([])
+          expect(textOf(await bench.draw())).toContain('inline 的回答')
+        })
+      }
+    }
+  }
+
+  test('partial Orca plus full Herdr selects Herdr without asking', async () => {
+    const bench = harness({ ORCA_TERMINAL_HANDLE: 'term_self', ...herdrIdentity }, [herdrSplitReply, herdrRunReply])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    expect(bench.calls[0]?.[0]).toBe('herdr')
+    expect(pressOf(await bench.draw(), 'ww:orca')).toBeUndefined()
+    expect(bench.inlineCalls).toEqual([])
+  })
+
+  test('full Orca plus partial Herdr selects Orca without asking', async () => {
+    const bench = harness({ ...orcaIdentity, HERDR_PANE_ID: 'w4:pPJ' }, [splitReply])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(20)
+    expect(bench.calls[0]?.[0]).toBe('orca')
+    expect(pressOf(await bench.draw(), 'ww:herdr')).toBeUndefined()
+    expect(bench.inlineCalls).toEqual([])
+  })
+
+  test('two partial identities still use the original in-mod request', async () => {
+    const bench = harness({ ORCA_TERMINAL_HANDLE: 'term_self', HERDR_PANE_ID: 'w4:pPJ' }, [])
+    pressOf(await bench.draw(), 'ww:plain')!()
+    await Bun.sleep(30)
+    expect(bench.calls).toEqual([])
+    expect(textOf(await bench.draw())).toContain('inline 的回答')
   })
 })
 
@@ -132,7 +263,7 @@ describe('when the pane route cannot run', () => {
   })
 
   test('a failed split falls back inline and says why', async () => {
-    const bench = harness({ ORCA_TERMINAL_HANDLE: 'term_self' }, [{ exitCode: 1, stdout: '', stderr: 'no runtime' }])
+    const bench = harness(orcaIdentity, [{ exitCode: 1, stdout: '', stderr: 'no runtime' }])
     pressOf(await bench.draw(), 'ww:plain')!()
     await Bun.sleep(30)
     const drawn = textOf(await bench.draw())

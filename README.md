@@ -123,13 +123,13 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/cc-mod-waitwhat
 每一輪結束後閒置 5 秒，mod 自動寫一份三欄摘要，同一個 session 1 分鐘內最多一次。band 顯示一行 `recap · <now> → <next>`，同一份也寫到 `~/.cache/cc-recap/<session id>.json`，給 [Collie](https://github.com/GGGODLIN/collie) 這類外部畫面讀。
 
 ```json
-{"version":1,"sessionId":"4114…","at":1790239993523,"model":"groq-qwen-3.8-27b",
+{"version":1,"sessionId":"4114…","at":1790239993523,"model":"groq-gpt-oss-120b",
  "goal":"讀取 hello.txt 並用一句話總結內容","now":"已讀取檔案並完成回答","next":"等待你的下一個指令"}
 ```
 
 | 項目 | 值 |
 |---|---|
-| 模型 | `groq-qwen-3.8-27b`，失敗退回 `gpt-6-luna-fast`，都走 `SIDECAR_PROXY` |
+| 模型 | `groq-gpt-oss-120b`（`reasoning_effort: low`），失敗退回 `gpt-5.6-luna-fast`，都走 `SIDECAR_PROXY` |
 | 送出內容 | 對話尾段，估計 5,000 token 內；`max_tokens` 300；`Request too large` 時砍半重送一次 |
 | 跳過 | 對話沒有新內容、輸入框有草稿、`claude -p`、subagent 的回合 |
 

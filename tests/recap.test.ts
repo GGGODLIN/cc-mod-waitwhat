@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionMessage } from 'claude-code'
 import {
+  RECAP_FALLBACK_MODEL,
   RECAP_IDLE_MS,
+  RECAP_MODEL,
   delayFor,
   estimateTokens,
   fingerprintOf,
@@ -50,6 +52,12 @@ describe('reading the model reply', () => {
 
   test('the request caps the output tokens', () => {
     expect(JSON.parse(recapBody('m', 't')).max_tokens).toBe(300)
+  })
+
+  test('only the Groq reasoning model is asked to think briefly', () => {
+    expect(JSON.parse(recapBody(RECAP_MODEL, 't'))).toMatchObject({ reasoning_effort: 'low', temperature: 0 })
+    expect(JSON.parse(recapBody(RECAP_FALLBACK_MODEL, 't'))).toMatchObject({ temperature: 0.3 })
+    expect(JSON.parse(recapBody(RECAP_FALLBACK_MODEL, 't')).reasoning_effort).toBeUndefined()
   })
 
   test('a Groq size refusal is recognised by status or by its message', () => {

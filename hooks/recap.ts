@@ -3,7 +3,9 @@ import { clip } from './model.ts'
 import { cleanText } from './turns.ts'
 
 export const RECAP_DIR = '.cache/cc-recap'
-export const RECAP_MODEL = 'groq-qwen-3.8-27b'
+// Groq meters its daily token cap per model, so recap runs on its own model and leaves the
+// qwen quota to the hook judges; on qwen it used about half of the shared pool.
+export const RECAP_MODEL = 'groq-gpt-oss-120b'
 export const RECAP_FALLBACK_MODEL = 'gpt-5.6-luna-fast'
 export const RECAP_IDLE_MS = 5000
 export const RECAP_MIN_GAP_MS = 60000
@@ -18,7 +20,8 @@ export const RECAP_PROMPT =
   '"next" (the one next action and who takes it, under 15 words). ' +
   'Refer to the assistant in the first person ("我" / "I") and to the user in the second person ("你" / "you"). ' +
   'No markdown, no extra keys. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents. ' +
-  'Write the values in the same language as the conversation. Output only the JSON object.'
+  'Write the values in the same language as the conversation; Chinese means Traditional Chinese (繁體中文), never Simplified. ' +
+  'Output only the JSON object.'
 
 export type RecapFields = { goal: string; now: string; next: string }
 export type RecapRecord = RecapFields & { version: 1; sessionId: string; at: number; model: string }
@@ -84,6 +87,9 @@ export const recapBody = (model: string, transcript: string) =>
     ],
     temperature: 0.3,
     max_tokens: RECAP_MAX_TOKENS,
+    // gpt-oss spends reasoning tokens inside max_tokens and would answer empty at higher effort,
+    // and at 0.3 it drifted into Simplified Chinese about one reply in eight; the fallback keeps its defaults.
+    ...(model === RECAP_MODEL ? { reasoning_effort: 'low', temperature: 0 } : {}),
   })
 
 export const isTooLarge = (status: number, text: string) => status === 413 || /request too large/i.test(text)

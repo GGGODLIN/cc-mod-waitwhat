@@ -2,7 +2,7 @@
 
 在 Claude Code 提示框上方重講它剛剛說的話。重講內容不進 transcript，模型看不到。
 
-重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Orca](https://orca.computer) 或 [Herdr](https://herdr.dev) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
+重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Herdr](https://herdr.dev) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
 
 這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
@@ -21,7 +21,7 @@
 │  ❯
 ```
 
-| 按鈕 | 做什麼 | 送什麼給模型 | 在 Orca 裡 |
+| 按鈕 | 做什麼 | 送什麼給模型 | 在 Herdr 裡 |
 |---|---|---|---|
 | `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） | 隔壁那格跑 `ww 1` |
 | `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 | 隔壁那格跑 `ww` |
@@ -32,47 +32,13 @@
 - 不註冊 slash command。`/wait-what` 這類指令一敲，CC 就會把 `<command-name>` 寫進 transcript、模型下一輪就看到；按鈕走的是 `ui.press`，實測 JSONL 零筆記錄。
 - 就算退回 Claude 自家模型，走的也是 `$.model.complete`：一次獨立呼叫，沒有歷史、沒有工具，system prompt 只有你給的那段。
 
-## 在 Orca 底下：重講跑到隔壁那格
+## 在 Herdr 底下：重講跑到隔壁那格
 
-`ORCA_TERMINAL_HANDLE`、`ORCA_PANE_KEY`、`ORCA_WORKTREE_ID` 齊全時，按鈕改在選定的 Orca 宿主拆一格終端，執行 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。只有部分身分欄位時，不視為 Orca。
+`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 齊全時，按鈕會在目前 tab 拆一格終端，執行 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。只有部分身分欄位時，保留原本在 band 內重講的做法。
 
-```
-┌ Orca tab ─────────────────┬───────────────────────────┐
-│ CC                        │ ww 1                      │
-│  …                        │                           │
-│  wait what [白話] [跟丟了] │ git stash 是 Git 的臨時    │
-│  ── 白話 · 已丟給旁邊那格  │ 置物櫃…                    │
-│  ❯                        │ ❯                         │
-└───────────────────────────┴───────────────────────────┘
-```
+`herdr pane split` 不吃 `--command`，所以先用 `herdr pane split --current --direction right --no-focus` 建 pane，再用 `herdr pane run <pane> "ww 1"`。第二次按會先用 `herdr pane list --workspace` 確認 pane 還在，再以 `herdr pane run <pane>` 重用。
 
-按下去的瞬間右邊那格才長出來，重講留在那裡，CC 這邊只多一行狀態。
-
-![Orca 底下拆一格跑 ww](screenshots/orca-split.gif)
-
-不用傳 session id。`ww` 會讀自己那格的 `ORCA_TAB_ID`，掃行程的環境變數找到同一個 tab 的 CC，自己認出要重講哪一支。
-
-這條路比 band 更乾淨：mod 不碰 `$.session.messages()`、也不碰 `$.model`，CC 這個殼連重講內容都沒經手，只知道你按了按鈕、然後開了一格終端。band 只留一行狀態。
-
-第二次按會重用同一格（`orca terminal send`），不會愈開愈多。那格被你關掉就重拆一格。`orca` 指令失敗、或根本不在 Orca 裡，就退回原本畫在 band 的做法，並在標題行寫出退回原因。
-
-### Herdr 底下也一樣
-
-Herdr 走同一條路，只差在指令：
-
-| 動作 | Orca | Herdr |
-| --- | --- | --- |
-| 拆格 | `orca terminal split --command "ww 1"` | `herdr pane split --current --direction right --no-focus` 再 `herdr pane run <pane> "ww 1"` |
-| 重用 | `orca terminal send --enter` | `herdr pane run <pane>` |
-| 還活著嗎 | `orca terminal list`（看 `orphaned`） | `herdr pane list --workspace`（pane id 還在清單裡就算活著） |
-
-`herdr pane split` 不吃 `--command`，所以拆完要再送一次；實測零間隔連著送不會掉字，就沒加等待。
-
-拆出來的格子跟 CC 在同一個 tab，`ww` 靠繼承的 `HERDR_TAB_ID` 認出要重講哪一支，一樣不用傳 session id。
-
-`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 齊全才視為 Herdr。兩套身分同時完整時，每次按重講都先顯示「Orca／Herdr／取消」；未選或取消不啟動程序，也不改走模型請求。兩套身分都不完整時，保留原本在 band 內重講的做法。
-
-選 Orca 時，只在新啟動的 `ww` 子程序移除繼承的 Herdr 身分變數，不修改目前 shell 或既有 session。兩個宿主各自重用自己的 pane，不跨宿主送指令。
+拆出來的格子跟 CC 在同一個 tab，`ww` 靠繼承的 `HERDR_TAB_ID` 認出要重講哪一支，不用傳 session id。
 
 兩邊共用同一份快取，所以剛在 band 看過的那段，換到隔壁那格不會再花一次錢。
 

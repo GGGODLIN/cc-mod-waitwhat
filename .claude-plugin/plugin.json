@@ -1,7 +1,7 @@
 {
   "name": "cc-mod-waitwhat",
-  "version": "0.6.1",
-  "description": "Retell what Claude just said, in plain words — in the band above the prompt, or in a split pane when running under Orca. Nothing enters the transcript or the model's context.",
+  "version": "0.6.4",
+  "description": "Retell what Claude just said, in plain words — in the band above the prompt, or in a split pane when running under Herdr. Nothing enters the transcript or the model's context.",
   "author": { "name": "gggodlin" },
   "license": "MIT"
 }

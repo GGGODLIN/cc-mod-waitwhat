@@ -4,6 +4,7 @@ import {
   RECAP_FALLBACK_MODEL,
   RECAP_INPUT_BUDGET,
   RECAP_MODEL,
+  RECAP_TIMEOUT_MS,
   type RecapFields,
   type RecapRecord,
   delayFor,
@@ -11,8 +12,8 @@ import {
   isTooLarge,
   parseRecap,
   recapBody,
+  recapInput,
   recapPath,
-  tailWithin,
 } from './recap.ts'
 
 const KEY_FILE = '.cli-proxy-api/config.yaml'
@@ -26,7 +27,10 @@ const apiKeyOf = async ($: EngineInterface, home: string) => {
 
 const askOnce = async ($: EngineInterface, apiKey: string | null, model: string, messages: SessionMessage[], budget: number) => {
   const url = (await $.env.get('SIDECAR_PROXY')) ?? DEFAULT_PROXY
-  const response = await $.http.fetch(url, { method: 'POST', headers: httpHeaders(apiKey), body: recapBody(model, tailWithin(messages, budget)) })
+  const request = $.http.fetch(url, { method: 'POST', headers: httpHeaders(apiKey), body: recapBody(model, recapInput(messages, budget)) })
+  // $.http.fetch takes no timeout, so a stalled relay would otherwise hold the recap forever.
+  const timedOut = $.clock.sleep(RECAP_TIMEOUT_MS).then(() => ({ status: 0, ok: false, headers: {}, text: `timed out after ${RECAP_TIMEOUT_MS}ms` }))
+  const response = await Promise.race([request, timedOut])
   return { ...response, model }
 }
 
@@ -48,15 +52,15 @@ const fieldsOf = (got: Asked, reasons: string[]) => {
   return fields
 }
 
-// Groq first; one retry at half the tail when its per-minute token limit refuses the size;
-// then the fallback model once. A null answer leaves Collie on its "你：<prompt>" line.
+// Luna first; then Groq, with one retry at half the input when its per-minute token limit
+// refuses the size. A null answer leaves Collie on its "你：<prompt>" line.
 const askRecap = async ($: EngineInterface, apiKey: string | null, messages: SessionMessage[]) => {
   const reasons: string[] = []
-  let primary = await askOnce($, apiKey, RECAP_MODEL, messages, RECAP_INPUT_BUDGET)
-  if (!primary.ok && isTooLarge(primary.status, primary.text)) primary = await askOnce($, apiKey, RECAP_MODEL, messages, RECAP_INPUT_BUDGET / 2)
+  const primary = await askOnce($, apiKey, RECAP_MODEL, messages, RECAP_INPUT_BUDGET)
   const fromPrimary = fieldsOf(primary, reasons)
   if (fromPrimary !== null) return { fields: fromPrimary, model: RECAP_MODEL, reasons }
-  const fallback = await askOnce($, apiKey, RECAP_FALLBACK_MODEL, messages, RECAP_INPUT_BUDGET)
+  let fallback = await askOnce($, apiKey, RECAP_FALLBACK_MODEL, messages, RECAP_INPUT_BUDGET)
+  if (!fallback.ok && isTooLarge(fallback.status, fallback.text)) fallback = await askOnce($, apiKey, RECAP_FALLBACK_MODEL, messages, RECAP_INPUT_BUDGET / 2)
   const fromFallback = fieldsOf(fallback, reasons)
   return fromFallback !== null ? { fields: fromFallback, model: RECAP_FALLBACK_MODEL, reasons } : { fields: null, model: null, reasons }
 }

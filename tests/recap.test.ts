@@ -10,8 +10,10 @@ import {
   isTooLarge,
   parseRecap,
   recapBody,
+  recapInput,
   recapPath,
   tailWithin,
+  userMessagesWithin,
 } from '../hooks/recap.ts'
 
 const said = (role: 'user' | 'assistant', text: string): SessionMessage => ({ role, text, toolUses: [] })
@@ -38,11 +40,39 @@ describe('budgeting the tail', () => {
     const tail = tailWithin([reminded, withResult], 1000)
     expect(tail).toBe('User: fix it')
   })
+
+  test('the user-message digest keeps only what the person typed, newest within the budget', () => {
+    const withResult: SessionMessage = { role: 'user', text: 'raw output', toolUses: [], toolResults: [{ tool_use_id: 't', text: 'raw output', isError: false }] }
+    const messages = [
+      said('user', '舊話題'.repeat(20)),
+      said('assistant', 'reply'),
+      withResult,
+      said('user', '<task-notification>done</task-notification>'),
+      said('user', '新話題'),
+    ]
+    const digest = userMessagesWithin(messages, 10)
+    expect(digest).toContain('- 新話題')
+    expect(digest).toContain('(… 1 earlier messages omitted …)')
+    expect(digest).not.toContain('raw output')
+    expect(digest).not.toContain('task-notification')
+    expect(digest).not.toContain('reply')
+  })
+
+  test('the model input carries both the user digest and the recent tail', () => {
+    const input = recapInput([said('user', '修 header'), said('assistant', '改好了')], 5000)
+    expect(input).toContain('<user_messages>\n- 修 header\n</user_messages>')
+    expect(input).toContain('<recent>\nUser: 修 header\n\nAssistant: 改好了\n</recent>')
+  })
 })
 
 describe('reading the model reply', () => {
-  test('the three fields come out of a JSON object wrapped in prose', () => {
-    expect(parseRecap('Sure: {"goal":"修 bug","now":"在跑測試","next":"我看結果"} done')).toEqual({ goal: '修 bug', now: '在跑測試', next: '我看結果' })
+  test('the fields come out of a JSON object wrapped in prose', () => {
+    expect(parseRecap('Sure: {"goal":"修 bug","now":"在跑測試","next":"我看結果"} done')).toEqual({ goal: '修 bug', now: '在跑測試', next: '我看結果', waiting: false })
+  })
+
+  test('waiting is set only by a literal true', () => {
+    expect(parseRecap('{"now":"x","waiting_on_user_decision":true}')?.waiting).toBe(true)
+    expect(parseRecap('{"now":"x","waiting_on_user_decision":"true"}')?.waiting).toBe(false)
   })
 
   test('a reply without a now is no recap at all', () => {
@@ -51,13 +81,13 @@ describe('reading the model reply', () => {
   })
 
   test('the request caps the output tokens', () => {
-    expect(JSON.parse(recapBody('m', 't')).max_tokens).toBe(300)
+    expect(JSON.parse(recapBody('m', 't')).max_tokens).toBe(600)
   })
 
-  test('only the Groq reasoning model is asked to think briefly', () => {
-    expect(JSON.parse(recapBody(RECAP_MODEL, 't'))).toMatchObject({ reasoning_effort: 'low', temperature: 0 })
-    expect(JSON.parse(recapBody(RECAP_FALLBACK_MODEL, 't'))).toMatchObject({ temperature: 0.3 })
-    expect(JSON.parse(recapBody(RECAP_FALLBACK_MODEL, 't')).reasoning_effort).toBeUndefined()
+  test('both models think briefly and only the Groq fallback is pinned to temperature 0', () => {
+    expect(JSON.parse(recapBody(RECAP_MODEL, 't'))).toMatchObject({ model: 'gpt-6-luna', reasoning_effort: 'low' })
+    expect(JSON.parse(recapBody(RECAP_MODEL, 't')).temperature).toBeUndefined()
+    expect(JSON.parse(recapBody(RECAP_FALLBACK_MODEL, 't'))).toMatchObject({ model: 'groq-gpt-oss-120b', reasoning_effort: 'low', temperature: 0 })
   })
 
   test('a Groq size refusal is recognised by status or by its message', () => {

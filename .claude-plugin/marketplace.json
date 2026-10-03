@@ -6,7 +6,7 @@
     {
       "name": "cc-mod-waitwhat",
       "source": "./",
-      "description": "Buttons above the prompt that retell the last N turns in plain words. The retell is drawn in the band, never written to the transcript, never seen by the model.",
+      "description": "Buttons above the prompt that retell recent turns in plain words or show what a background check flagged. Drawn in the CC pane, never written to the transcript, never seen by the model.",
       "homepage": "https://github.com/GGGODLIN/cc-mod-waitwhat",
       "repository": "https://github.com/GGGODLIN/cc-mod-waitwhat",
       "license": "MIT"

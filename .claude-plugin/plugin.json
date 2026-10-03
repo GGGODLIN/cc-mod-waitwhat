@@ -1,7 +1,7 @@
 {
   "name": "cc-mod-waitwhat",
-  "version": "0.7.0",
-  "description": "Retell what Claude just said, in plain words — in the band above the prompt, or in a split pane when running under Herdr. Nothing enters the transcript or the model's context.",
+  "version": "0.8.0",
+  "description": "Buttons above the prompt: retell recent turns in plain words, or open what a background check flagged that you might miss. Results go to Claude Code's own pane; nothing enters the transcript or the model's context.",
   "author": { "name": "gggodlin" },
   "license": "MIT"
 }

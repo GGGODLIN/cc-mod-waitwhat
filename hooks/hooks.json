@@ -1,4 +1,4 @@
 {
-  "description": "wait what: buttons above the prompt that retell recent turns. Inside Herdr the retell runs as ww in a split pane; elsewhere it goes through $.model.complete and is drawn in the band. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+  "description": "Buttons above the prompt: 白話 and 跟丟了 retell recent turns, 該知道 shows what a check after each turn flagged. Results are drawn in the CC pane. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
   "modules": ["./register.tsx"]
 }

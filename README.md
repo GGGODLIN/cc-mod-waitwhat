@@ -1,46 +1,58 @@
 # cc-mod-waitwhat
 
-在 Claude Code 提示框上方重講它剛剛說的話。重講內容不進 transcript，模型看不到。
+在 Claude Code 提示框上方放三顆按鈕：重講它剛剛說的話，或提醒你可能漏看的事。內容都不進 transcript，模型看不到。
 
-重講畫在哪裡看終端機：一般終端機畫在提示框上方那條 band；**在 [Herdr](https://herdr.dev) 裡則是拆一格終端出來跑 `ww`**，band 只留一行狀態。兩種都不碰 transcript。
+結果畫在 CC 自己的 pane：終端機夠寬時停在畫面右邊，窄時開在提示框上方。不需要 Herdr。
 
 這是 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 Claude Mods 版：sidecar 跑在 CC 外面、讀 JSONL；這個 mod 跑在 CC 裡面、讀引擎給的對話，換來不用切終端機、不用選 session。兩邊共用同一組環境變數與 prompt 覆寫檔。
 
 ![cc-mod-waitwhat demo](screenshots/demo.gif)
 
 ```
-┌ transcript
-│  …
-├ band
-│  wait what [ 白話 ] [ 跟丟了 ] [ 清除 ]
-│  ── 白話 · 往回 1 turn  (送出 201 字 → http:gemini-3.8-flash-high · 6.5s)
-│  ╭──────────────────────────────────────────────╮
-│  │ git stash 是 Git 的「臨時置物櫃」…            │
-│  ╰──────────────────────────────────────────────╯
-├ prompt
+┌ transcript                         ┌ pane（寬終端停右邊）
+│  …                                 │ Heads up · 結帳可能重複扣款
+├ band                               │ - 測試全過，但沒測重送…
+│  [ 白話 ] [ 跟丟了 ] [ 該知道 ● ]   │ 來源 http:gemini-3.8-flash-high
+│  recap · 我已修好結帳 → 等你確認     │ [ 有幫助 ] [ 不相關 ]
+├ prompt                             └
 │  ❯
 ```
 
-| 按鈕 | 做什麼 | 送什麼給模型 | 在 Herdr 裡 |
-|---|---|---|---|
-| `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） | 隔壁那格跑 `ww 1` |
-| `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 | 隔壁那格跑 `ww` |
+| 按鈕 | 做什麼 | 送什麼給模型 |
+|---|---|---|
+| `白話` | 看不懂這一輪，白話重講 | 最後一個 turn（你問一次加上 CC 那一輪的全部回應，工具呼叫不拆開算） |
+| `跟丟了` | 跟丟了，重講整段脈絡 | 整個 session 的對話與工具紀錄 |
+| `該知道` | 看背景檢查挑出的提醒；有新提醒時亮起來、加 `●` | 不用按就會送，見下方「該知道」 |
+
+## 該知道
+
+仿 Claude Code 內建的 You should know mod（`cc-plugin-you-should-know@builtin`），改成走你自己的模型、只在 main 停下來等你時檢查。
+
+| 項目 | 內建版 | 這裡 |
+|---|---|---|
+| 何時檢查 | main 跑的過程中，每隔幾步一次 | 每一輪結束、閒置 5 秒後一次；輸入框有草稿就跳過 |
+| 送什麼 | `$.model.fork`：整段對話原樣、同一個模型，吃 main 的 prompt cache | 整段對話，但每筆工具參數與結果只留頭尾各 300 字、去掉 system-reminder；估算超過 60,000 token 就砍最舊的 |
+| 誰判斷 | Claude 官方直連且開 telemetry 的 session 才能用 | 跟重講同一條鏈：`cmd` → `http` → Claude 自家模型；`YSK_MODEL` 可只換「該知道」的 http 模型 |
+
+判斷標準照內建版：預設什麼都不講，只有漏掉會損失錢、時間、白做工、得出錯誤結果時才提醒；你已經在討論或問過的不提；已提醒過的列給模型跳過。提醒分兩種標籤：
+
+- `You should know`：某個系統、概念或設計怎麼運作，而且對你的工作影響很大。
+- `Heads up`：這個 session 裡 main 自己做的決定、沒特別講的事、可能有錯的結果，漏掉馬上有代價。
+
+亮起來的提醒沒點開，你再送出兩次 prompt 就自動收掉。pane 裡的 `有幫助`／`不相關` 跟每次檢查的結果都寫進 `~/.cache/cc-ysk-log.jsonl`（留最新 2,000 行），用來判斷這個功能值不值得留：
+
+```json
+{"at":1791039533274,"event":"checked","sessionId":"…","source":"cmd:sidecar-webchat","chars":109,"seconds":5.5,"outcome":"none"}
+{"at":1791039600000,"event":"answered","sessionId":"…","answer":"helpful","tag":"Heads up","title":"結帳可能重複扣款"}
+```
+
+`outcome` 是 `shown`／`none`／`repeat`／`parse_failed`／`error`；`answer` 是 `opened`／`helpful`／`not_relevant`／`ignored`。
 
 ## 為什麼模型看不到
 
-- 結果畫在 `AbovePrompt`（提示框上方那條 band），不回傳任何文字給 transcript。
+- 結果畫在 CC 的 pane，按鈕在 `AbovePrompt`（提示框上方那條 band），都不回傳任何文字給 transcript。
 - 不註冊 slash command。`/wait-what` 這類指令一敲，CC 就會把 `<command-name>` 寫進 transcript、模型下一輪就看到；按鈕走的是 `ui.press`，實測 JSONL 零筆記錄。
 - 就算退回 Claude 自家模型，走的也是 `$.model.complete`：一次獨立呼叫，沒有歷史、沒有工具，system prompt 只有你給的那段。
-
-## 在 Herdr 底下：重講跑到隔壁那格
-
-`HERDR_PANE_ID` 與 `HERDR_WORKSPACE_ID` 齊全時，按鈕會在目前 tab 拆一格終端，執行 [cc-sidecar-waitwhat](https://github.com/GGGODLIN/cc-sidecar-waitwhat) 的 `ww`。只有部分身分欄位時，保留原本在 band 內重講的做法。
-
-`herdr pane split` 不吃 `--command`，所以先用 `herdr pane split --current --direction right --no-focus` 建 pane，再用 `herdr pane run <pane> "ww 1"`。第二次按會先用 `herdr pane list --workspace` 確認 pane 還在，再以 `herdr pane run <pane>` 重用。
-
-拆出來的格子跟 CC 在同一個 tab，`ww` 靠繼承的 `HERDR_TAB_ID` 認出要重講哪一支，不用傳 session id。
-
-兩邊共用同一份快取，所以剛在 band 看過的那段，換到隔壁那格不會再花一次錢。
 
 ## 誰提供這次的重講
 
@@ -56,7 +68,7 @@
 
 ## 需求
 
-- Claude Code 2.1.267 以上，並開 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
+- Claude Code 2.1.288 以上（`$.model.complete` 回傳結果物件、pane 與 `Markdown` 元件），並開 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
 - 只在 terminal 有效。桌面版和手機版沒有 band。
 
 ## 裝
@@ -118,6 +130,8 @@ claude plugin validate .claude-plugin/plugin.json   # 列出掛的事件、$ 呼
 型別檢查要先在這個資料夾開一個帶 function hooks 的 session、跑 `/plugin-types` 產生 `.claude/types/`，再 `bunx -p typescript tsc -p .`。
 
 用 `--plugin-dir` 跑時改檔會熱重載；裝進 marketplace 的複本要 `claude plugin update`。
+
+會用到 `$` 的函式全放在 `hooks/register.tsx`：validator 只追進同一檔案頂層宣告的函式，`$` 傳進 import 來的函式或巢狀 closure 都會被拒。純函式（組 payload、解析回覆、快取 key）才拆到其他檔案。同一個事件（如 `turn.complete`）也只能不帶 matcher 掛一次，所以 recap 與「該知道」共用同一組 `turn.start`／`turn.complete`。
 
 ## License
 

@@ -39,14 +39,16 @@
 - `You should know`：某個系統、概念或設計怎麼運作，而且對你的工作影響很大。
 - `Heads up`：這個 session 裡 main 自己做的決定、沒特別講的事、可能有錯的結果，漏掉馬上有代價。
 
-亮起來的提醒沒點開，你再送出兩次 prompt 就自動收掉。pane 裡的 `有幫助`／`不相關` 跟每次檢查的結果都寫進 `~/.cache/cc-ysk-log.jsonl`（留最新 2,000 行），用來判斷這個功能值不值得留：
+走 `cmd` 時另外帶 `SIDECAR_WEB_EFFORT`，預設 `extended`（`YSK_WEB_EFFORT` 可改）：這個判斷比重講更吃推理。ChatGPT 網頁版接受 `standard`／`extended`／`max`，`heavy` 與不認得的名字會被拒（2026-10-03 實測）。網頁版的輸入上限實測落在 46～55 萬字元之間、模型本身約 20～30 萬 token 之間；這裡的 60,000 估算 token 換成字元遠低於兩者。
+
+亮起來的提醒沒點開，你再送出兩次 prompt 就自動收掉。pane 裡的 `有幫助`／`不相關` 跟每次檢查的結果都寫進 `~/.cache/cc-ysk-log.jsonl`（留最新 2,000 行）；每次送出的完整內容另存在 `~/.cache/cc-ysk-payloads/<session id>-<訊息數>.txt`，事後可以拿來判斷模型該講沒講、講的準不準：
 
 ```json
-{"at":1791039533274,"event":"checked","sessionId":"…","source":"cmd:sidecar-webchat","chars":109,"seconds":5.5,"outcome":"none"}
+{"at":1791041447277,"event":"checked","sessionId":"…","messages":3,"source":"cmd:sidecar-webchat","effort":"extended","fallback":null,"chars":109,"seconds":7.3,"payload":"~/.cache/cc-ysk-payloads/…-3.txt","reply":"{\"tag\":\"none\"}","outcome":"none"}
 {"at":1791039600000,"event":"answered","sessionId":"…","answer":"helpful","tag":"Heads up","title":"結帳可能重複扣款"}
 ```
 
-`outcome` 是 `shown`／`none`／`repeat`／`parse_failed`／`error`；`answer` 是 `opened`／`helpful`／`not_relevant`／`ignored`。
+`outcome` 是 `shown`／`none`／`repeat`／`parse_failed`／`error`；`answer` 是 `opened`／`helpful`／`not_relevant`／`ignored`；`fallback` 是前面幾條來源失敗的原因。payload 檔不會自動清。
 
 ## 為什麼模型看不到
 

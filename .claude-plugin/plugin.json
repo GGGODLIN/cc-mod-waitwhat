@@ -1,6 +1,6 @@
 {
   "name": "cc-mod-waitwhat",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Buttons above the prompt: retell recent turns in plain words, or open what a background check flagged that you might miss. Results go to Claude Code's own pane; nothing enters the transcript or the model's context.",
   "author": { "name": "gggodlin" },
   "license": "MIT"

@@ -37,13 +37,16 @@ import {
   YSK_INPUT_BUDGET,
   YSK_LOG,
   YSK_PROMPT,
+  YSK_REPLY_KEPT,
   YSK_SEEN_KEPT,
+  YSK_WEB_EFFORT,
   type YskAnswer,
   type YskShown,
   isRepeat,
   parseYsk,
   withLogLine,
   yskPayload,
+  yskPayloadPath,
 } from './ysk.ts'
 
 // Every function that takes $ lives in this file: the engine's validator follows $ only into
@@ -61,6 +64,10 @@ type State =
 type View = 'retell' | 'ysk'
 
 type Answer = { text: string; source: string; fallback: string | null }
+
+type AskOptions = { httpModel?: string; cmdEnv?: Record<string, string> }
+
+const HTTP_TIMEOUT_MS = 120000
 
 type RecapRunner = { pending: Timer | null; lastRunAt: number | null; lastFingerprint: string; running: boolean }
 
@@ -80,10 +87,10 @@ const apiKeyOf = async ($: EngineInterface) => {
   return (await $.fs.exists(path)) ? firstApiKey(await $.fs.read(path)) : null
 }
 
-const askCmd = async ($: EngineInterface, system: string, payload: string) => {
+const askCmd = async ($: EngineInterface, system: string, payload: string, env: Record<string, string>) => {
   const command = await $.env.get('SIDECAR_CMD')
   if (command === undefined || command.trim().length === 0) throw new Error('沒有設 SIDECAR_CMD')
-  const result = await $.process.run(splitArgv(command), { stdin: cmdStdin(system, payload), timeoutMs: 300000 })
+  const result = await $.process.run(splitArgv(command), { stdin: cmdStdin(system, payload), env, timeoutMs: 300000 })
   if (result.exitCode !== 0) throw new Error(`${command} 失敗（exit ${result.exitCode}）：${clip((result.stderr || result.stdout).trim(), 200)}`)
   const text = result.stdout.trim()
   if (text.length === 0) throw new Error(`${command} 沒有輸出任何內容`)
@@ -93,7 +100,10 @@ const askCmd = async ($: EngineInterface, system: string, payload: string) => {
 const askHttp = async ($: EngineInterface, system: string, payload: string, model: string | undefined) => {
   const url = (await $.env.get('SIDECAR_PROXY')) ?? DEFAULT_PROXY
   const chosen = model ?? (await $.env.get('SIDECAR_MODEL')) ?? DEFAULT_HTTP_MODEL
-  const response = await $.http.fetch(url, { method: 'POST', headers: httpHeaders(await apiKeyOf($)), body: httpBody(chosen, system, payload) })
+  const request = $.http.fetch(url, { method: 'POST', headers: httpHeaders(await apiKeyOf($)), body: httpBody(chosen, system, payload) })
+  // $.http.fetch takes no timeout; without this a stalled relay holds the chain before the Claude fallback.
+  const timedOut = $.clock.sleep(HTTP_TIMEOUT_MS).then(() => ({ status: 0, ok: false, headers: {}, text: `timed out after ${HTTP_TIMEOUT_MS}ms` }))
+  const response = await Promise.race([request, timedOut])
   if (!response.ok) throw new Error(`HTTP ${response.status}：${clip(response.text.trim(), 200)}`)
   return { text: httpReplyText(response.text), source: `http:${chosen}` }
 }
@@ -107,13 +117,13 @@ const askFallback = async ($: EngineInterface, system: string, payload: string) 
 }
 
 // cmd, then http, then Claude's own model; SIDECAR_SOURCE pins one of the first two.
-const ask = async ($: EngineInterface, system: string, payload: string, httpModel?: string): Promise<Answer> => {
+const ask = async ($: EngineInterface, system: string, payload: string, options: AskOptions = {}): Promise<Answer> => {
   const source = sourceOf(await $.env.get('SIDECAR_SOURCE'))
   const chain = source === 'cmd' ? ['cmd'] : source === 'http' ? ['http'] : ['cmd', 'http']
   const reasons: string[] = []
   for (const step of chain) {
     try {
-      const answer = step === 'cmd' ? await askCmd($, system, payload) : await askHttp($, system, payload, httpModel)
+      const answer = step === 'cmd' ? await askCmd($, system, payload, options.cmdEnv ?? {}) : await askHttp($, system, payload, options.httpModel)
       return { ...answer, fallback: reasons.length > 0 ? reasons.join('；') : null }
     } catch (err) {
       reasons.push(String(err instanceof Error ? err.message : err))
@@ -230,10 +240,17 @@ const yskNow = async ($: EngineInterface, runner: YskRunner, onFound: (shown: Ys
     if (fingerprint === runner.lastFingerprint) return
     runner.lastFingerprint = fingerprint
     const payload = yskPayload(messages, runner.seen, YSK_INPUT_BUDGET)
-    const answer = await ask($, YSK_PROMPT, payload, await $.env.get('YSK_MODEL'))
+    const home = await $.env.get('HOME')
+    const payloadPath = home === undefined ? null : yskPayloadPath(home, sessionId, messages.length)
+    if (payloadPath !== null) await $.fs.write(payloadPath, `${YSK_PROMPT}\n\n---\n\n${payload}`).catch(() => undefined)
+    const effort = (await $.env.get('YSK_WEB_EFFORT')) ?? YSK_WEB_EFFORT
+    const answer = await ask($, YSK_PROMPT, payload, { httpModel: await $.env.get('YSK_MODEL'), cmdEnv: { SIDECAR_WEB_EFFORT: effort } })
     const seconds = Number(((Date.now() - started) / 1000).toFixed(1))
     const parsed = parseYsk(answer.text)
-    const base = { event: 'checked', sessionId, source: answer.source, chars: payload.length, seconds }
+    const base = {
+      event: 'checked', sessionId, messages: messages.length, source: answer.source, effort, fallback: answer.fallback,
+      chars: payload.length, seconds, payload: payloadPath, reply: answer.text.slice(0, YSK_REPLY_KEPT),
+    }
     if (parsed === null) return await yskLog($, { ...base, outcome: 'parse_failed' })
     if (parsed.item === null) return await yskLog($, { ...base, outcome: 'none' })
     if (isRepeat(parsed.item.line, runner.seen)) return await yskLog($, { ...base, outcome: 'repeat' })

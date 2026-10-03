@@ -4,6 +4,13 @@ import { cleanText } from './turns.ts'
 
 export const YSK_LOG = '.cache/cc-ysk-log.jsonl'
 export const YSK_LOG_LINES = 2000
+// Each check's exact input is kept beside the log so a review can judge what the model missed,
+// not only what it flagged.
+export const YSK_PAYLOAD_DIR = '.cache/cc-ysk-payloads'
+export const YSK_REPLY_KEPT = 4000
+// ChatGPT web takes standard, extended and max (heavy and unknown names are refused, probed
+// 2026-10-03); this check needs judgment more than speed, so it asks above the web default.
+export const YSK_WEB_EFFORT = 'extended'
 // About a third of a long session once tool output is cut to its ends (measured on 8 sessions
 // over 150K tokens on 2026-10-03), so most sessions go in whole and the longest lose their oldest part.
 export const YSK_INPUT_BUDGET = 60000
@@ -117,7 +124,10 @@ export const parseYsk = (reply: string): { item: YskItem | null } | null => {
 
 const normalised = (line: string) => line.toLowerCase().replace(/[\s\p{P}]+/gu, '')
 
-export const isRepeat = (line: string, seen: readonly string[]) => seen.some((one) => normalised(one) === normalised(line))
+export const yskPayloadPath = (home: string, sessionId: string, messageCount: number) =>
+  /^[A-Za-z0-9-]+$/.test(sessionId) ? `${home}/${YSK_PAYLOAD_DIR}/${sessionId}-${messageCount}.txt` : null
+
+export const isRepeat =(line: string, seen: readonly string[]) => seen.some((one) => normalised(one) === normalised(line))
 
 export const withLogLine = (log: string, entry: Record<string, unknown>) => {
   const lines = log.split('\n').filter((line) => line.length > 0)

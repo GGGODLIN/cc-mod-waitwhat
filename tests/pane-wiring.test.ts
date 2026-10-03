@@ -28,11 +28,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 type Hook = ($: unknown, e: unknown, next: (e: unknown) => Promise<unknown>) => Promise<unknown> | unknown
 
-const harness = (options: { env?: Record<string, string>; reply?: string } = {}) => {
+const harness = (options: { env?: Record<string, string>; reply?: string; cmdReply?: string } = {}) => {
   const env = { HOME: '/home', ...options.env }
   const files = new Map<string, string>()
   const opened: string[] = []
   const processes: string[][] = []
+  const processEnvs: Array<Record<string, string> | undefined> = []
   const timers: Array<() => void> = []
   const asked: string[] = []
   const hooks = new Map<string, Hook>()
@@ -55,9 +56,10 @@ const harness = (options: { env?: Record<string, string>; reply?: string } = {})
       },
     },
     process: {
-      run: async (argv: string[]) => {
+      run: async (argv: string[], init?: { env?: Record<string, string> }) => {
         processes.push(argv)
-        return { exitCode: 1, stdout: '', stderr: 'no' }
+        processEnvs.push(init?.env)
+        return options.cmdReply === undefined ? { exitCode: 1, stdout: '', stderr: 'no' } : { exitCode: 0, stdout: options.cmdReply, stderr: '' }
       },
     },
     clock: {
@@ -99,7 +101,7 @@ const harness = (options: { env?: Record<string, string>; reply?: string } = {})
   }
   const submit = async () => hooks.get('prompt.submit')!($, { text: 'x' }, async (e) => e)
   const log = () => (files.get('/home/.cache/cc-ysk-log.jsonl') ?? '').split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line))
-  return { opened, processes, asked, band, pane, turnComplete, submit, log }
+  return { opened, processes, processEnvs, files, asked, band, pane, turnComplete, submit, log }
 }
 
 const heads = JSON.stringify({ tag: 'Heads up', line: '結帳修正可能重複扣款', title: '結帳可能重複扣款', explain: '- 測試全過，但沒測重送。' })
@@ -192,6 +194,39 @@ describe('you should know', () => {
     expect(checks()).toBe(1)
     await bench.turnComplete()
     expect(checks()).toBe(1)
+  })
+})
+
+describe('what a review can read back', () => {
+  test('the web model is asked at extended effort unless YSK_WEB_EFFORT says otherwise', async () => {
+    const bench = harness({ env: { SIDECAR_CMD: 'sidecar-webchat' }, cmdReply: '{"tag": "none"}' })
+    await bench.turnComplete()
+    const check = bench.processEnvs.find((one) => one?.SIDECAR_WEB_EFFORT !== undefined)
+    expect(check?.SIDECAR_WEB_EFFORT).toBe('extended')
+
+    const pinned = harness({ env: { SIDECAR_CMD: 'sidecar-webchat', YSK_WEB_EFFORT: 'max' }, cmdReply: '{"tag": "none"}' })
+    await pinned.turnComplete()
+    expect(pinned.processEnvs.find((one) => one?.SIDECAR_WEB_EFFORT !== undefined)?.SIDECAR_WEB_EFFORT).toBe('max')
+  })
+
+  test('every check logs the reply, the source, why earlier sources failed, and where its input is kept', async () => {
+    const bench = harness({ env: { SIDECAR_CMD: 'sidecar-webchat' }, cmdReply: heads })
+    await bench.turnComplete()
+    const entry = bench.log().find((one) => one.event === 'checked')!
+    expect(entry.outcome).toBe('shown')
+    expect(entry.reply).toContain('結帳修正可能重複扣款')
+    expect(entry.source).toBe('cmd:sidecar-webchat')
+    expect(entry.messages).toBe(2)
+    expect(entry.payload).toBe('/home/.cache/cc-ysk-payloads/session-1-2.txt')
+    expect(bench.files.get(entry.payload)).toContain('[Bash]')
+  })
+
+  test('a failed cmd is named in the log when http answers instead', async () => {
+    const bench = harness({ env: { SIDECAR_CMD: 'sidecar-webchat' }, reply: '{"tag": "none"}' })
+    await bench.turnComplete()
+    const entry = bench.log().find((one) => one.event === 'checked')!
+    expect(entry.source).toStartWith('http:')
+    expect(entry.fallback).toContain('sidecar-webchat 失敗')
   })
 })
 

@@ -47,10 +47,16 @@ export const YSK_PROMPT = [
   '- "Heads up": about the work in this session: a decision the assistant made, something it did not highlight, or a result that may be off, with an immediate cost if missed.',
   'If neither tag reads naturally, it does not clear the bar.',
   '',
+  'The human may have lost track of the conversation. Make the reminder understandable on its own, without making it a recap:',
+  '- Start with only the session context needed to understand this reminder: what you are trying to do or the relevant recent decision. Then state what was found and why it matters to you. Do not invent missing context.',
+  '- Use everyday language. Replace internal labels and code identifiers with what they mean to the human; keep a technical term only when necessary and explain it briefly in the same sentence. In Chinese prose, translate explanatory jargon into plain Chinese instead of inserting English terms.',
+  '- Write explain as 2-4 short sentences in one paragraph, at most 200 Chinese characters or 70 words in other languages. No headings or bullet lists. Use less when it is enough.',
+  '- Do not recap the whole conversation, repeat the title, or list the investigation steps. Do not add a task or advice unless it is necessary for a decision you are making now. Keep any uncertainty explicit.',
+  '',
   'Answer with one JSON object and nothing else:',
-  '{"tag": "You should know" | "Heads up" | "none", "line": "<the point in one sentence>", "title": "<the takeaway in 3-7 plain words, a statement, no question>", "explain": "<markdown, at most 120 words: plain sentences for a simple point, 3-6 bullets for a complex one; explain any technical term the human has not used; say what they can do about it if anything>"}',
+  '{"tag": "You should know" | "Heads up" | "none", "line": "<the point in one sentence>", "title": "<the takeaway in 3-7 plain words, a statement, no question>", "explain": "<the short, self-contained paragraph described above: necessary session context, finding, and its impact>"}',
   'With nothing to suggest answer {"tag": "none"}.',
-  'Say "the main agent" for the assistant and "you" for the human. Write in the language of the conversation; Chinese means Traditional Chinese (繁體中文), never Simplified.',
+  'Write in the language of the conversation; Chinese means Traditional Chinese (繁體中文), never Simplified. Address the human as "you"; refer to the assistant only when needed, naturally in that language.',
 ].join('\n')
 
 const edges = (text: string, edge: number) => (text.length <= edge * 2 ? text : `${text.slice(0, edge)} …(${text.length - edge * 2} chars cut)… ${text.slice(-edge)}`)

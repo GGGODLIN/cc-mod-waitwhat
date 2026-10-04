@@ -1,8 +1,25 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionMessage } from 'claude-code'
-import { YSK_LOG_LINES, isRepeat, parseYsk, withLogLine, yskPayload, yskTranscript } from '../hooks/ysk.ts'
+import { YSK_LOG_LINES, YSK_PROMPT, isRepeat, parseYsk, withLogLine, yskPayload, yskTranscript } from '../hooks/ysk.ts'
 
 const said = (role: 'user' | 'assistant', text: string): SessionMessage => ({ role, text, toolUses: [] })
+
+describe('writing the reminder', () => {
+  test('asks for minimal session context and a short, plain explanation', () => {
+    expect(YSK_PROMPT).toContain('Start with only the session context needed to understand this reminder')
+    expect(YSK_PROMPT).toContain('Use everyday language')
+    expect(YSK_PROMPT).toContain('2-4 short sentences in one paragraph')
+    expect(YSK_PROMPT).toContain('at most 200 Chinese characters or 70 words in other languages')
+    expect(YSK_PROMPT).not.toContain('3-6 bullets')
+  })
+
+  test('does not pad the reminder with a recap or mandatory advice', () => {
+    expect(YSK_PROMPT).toContain('Do not recap the whole conversation')
+    expect(YSK_PROMPT).toContain('Do not add a task or advice unless it is necessary')
+    expect(YSK_PROMPT).toContain('Keep any uncertainty explicit')
+    expect(YSK_PROMPT).toContain('With nothing to suggest answer {"tag": "none"}.')
+  })
+})
 
 describe('reading the reply', () => {
   test('a tagged finding parses', () => {
